@@ -21,9 +21,15 @@ class Discovery(context: Context) {
             setAttribute("api", API_VERSION.toString())
         }
         val l = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(info: NsdServiceInfo) = Log.i(TAG, "mDNS registered as ${info.serviceName}")
-            override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) = Log.w(TAG, "mDNS registration failed: $code")
-            override fun onServiceUnregistered(info: NsdServiceInfo) = Log.i(TAG, "mDNS unregistered")
+            override fun onServiceRegistered(info: NsdServiceInfo) {
+                Log.i(TAG, "mDNS registered as ${info.serviceName}")
+            }
+            override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {
+                Log.w(TAG, "mDNS registration failed: $code")
+            }
+            override fun onServiceUnregistered(info: NsdServiceInfo) {
+                Log.i(TAG, "mDNS unregistered")
+            }
             override fun onUnregistrationFailed(info: NsdServiceInfo, code: Int) = Unit
         }
         listener = l
