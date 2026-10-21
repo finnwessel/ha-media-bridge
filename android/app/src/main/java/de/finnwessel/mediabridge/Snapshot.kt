@@ -18,10 +18,12 @@ data class Snapshot(
     val foregroundLabel: String? = null,
     val volume: Double? = null,
     val muted: Boolean? = null,
+    val artworkId: String? = null,
+    val artworkUrl: String? = null,
 ) {
     /** Changes worth an immediate push. Position is handled separately (seek detection + heartbeat). */
     fun dedupKey() = listOf(
-        state, screenOn, app, title, artist, album, durationMs, canSeek, foregroundApp, volume, muted,
+        state, screenOn, app, title, artist, album, durationMs, canSeek, foregroundApp, volume, muted, artworkId,
     ).joinToString("|")
 
     fun toJson(extra: Map<String, Any?> = emptyMap()): JSONObject = JSONObject().apply {
@@ -39,6 +41,8 @@ data class Snapshot(
         put("foreground_label", foregroundLabel.orNull())
         put("volume", volume.orNull())
         put("muted", muted.orNull())
+        put("artwork_id", artworkId.orNull())
+        put("artwork_url", artworkUrl.orNull())
         put("sent_at", System.currentTimeMillis())
         extra.forEach { (k, v) -> put(k, v.orNull()) }
     }

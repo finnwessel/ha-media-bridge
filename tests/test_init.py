@@ -125,3 +125,86 @@ async def test_version_follows_app_updates(
     devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
     assert [d.sw_version for d in devices] == ["9.9.9"]
     assert entry.data["version"] == "9.9.9"
+
+
+async def test_sources_and_launch(hass: HomeAssistant, mock_client: MagicMock) -> None:
+    """Apps become sources; selecting one launches it, Home goes to the launcher."""
+    await _setup(hass)
+    state = hass.states.get("media_player.beamer")
+    assert state.attributes["source_list"] == ["Home", "Netflix", "YouTube"]
+    assert state.attributes["source"] == "Startbildschirm"
+
+    await hass.services.async_call(
+        "media_player", "select_source", {"entity_id": "media_player.beamer", "source": "Netflix"}, blocking=True
+    )
+    mock_client.command.assert_awaited_with("launch", package="com.netflix.ninja")
+    await hass.services.async_call(
+        "media_player", "select_source", {"entity_id": "media_player.beamer", "source": "Home"}, blocking=True
+    )
+    mock_client.command.assert_awaited_with("home")
+
+
+async def test_artwork_from_device(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """A cover bitmap is proxied from the device API."""
+    await _setup(hass)
+    client = await hass_client_no_auth()
+    await client.post("/api/webhook/hook", json={**PLAYING, "artwork_id": "abc123", "artwork_url": None})
+    await hass.async_block_till_done()
+    picture = hass.states.get("media_player.beamer").attributes["entity_picture"]
+    assert "cache=abc123" in picture
+    resp = await client.get(picture)
+    assert await resp.read() == b"jpeg-bytes"
+
+
+async def test_remote_key_event(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """Key presses pushed by the device fire the event entity."""
+    await _setup(hass)
+    client = await hass_client_no_auth()
+    await client.post("/api/webhook/hook", json={"id": "dev-1", "event": "key", "key": "menu", "press": "long_press"})
+    await hass.async_block_till_done()
+    state = hass.states.get("event.beamer_remote")
+    assert state.attributes["event_type"] == "long_press"
+    assert state.attributes["key"] == "menu"
+    # Events don't replace the media state.
+    assert hass.states.get("media_player.beamer").state == "idle"
+
+
+async def test_notification_service_and_action(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """The service passes buttons on; a button press comes back as a bus event."""
+    await _setup(hass)
+    await hass.services.async_call(
+        DOMAIN,
+        "show_notification",
+        {
+            "entity_id": "media_player.beamer",
+            "title": "Haustür",
+            "message": "Es hat geklingelt",
+            "actions": [{"id": "open", "title": "Öffnen"}, "Ignorieren"],
+            "tag": "door",
+            "pause_playback": True,
+        },
+        blocking=True,
+    )
+    args = mock_client.notify.await_args
+    assert args.args == ("Es hat geklingelt", "Haustür", 10000)
+    assert args.kwargs["actions"] == [{"id": "open", "title": "Öffnen"}, {"id": "Ignorieren", "title": "Ignorieren"}]
+    assert args.kwargs["pause"] is True
+    assert args.kwargs["tag"] == "door"
+
+    events = []
+    hass.bus.async_listen("media_bridge_notification_action", lambda e: events.append(e))
+    client = await hass_client_no_auth()
+    await client.post(
+        "/api/webhook/hook",
+        json={"id": "dev-1", "event": "notification_action", "action": "open", "tag": "door"},
+    )
+    await hass.async_block_till_done()
+    assert len(events) == 1
+    assert events[0].data["action"] == "open"
+    assert events[0].data["tag"] == "door"

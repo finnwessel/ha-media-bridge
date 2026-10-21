@@ -1,14 +1,24 @@
 {
   "domain": "media_bridge",
   "name": "Media Bridge",
-  "codeowners": ["@finnwessel"],
+  "after_dependencies": [
+    "camera"
+  ],
+  "codeowners": [
+    "@finnwessel"
+  ],
   "config_flow": true,
-  "dependencies": ["network", "webhook"],
+  "dependencies": [
+    "network",
+    "webhook"
+  ],
   "documentation": "https://github.com/finnwessel/ha-media-bridge",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/finnwessel/ha-media-bridge/issues",
   "requirements": [],
-  "version": "0.2.3",
-  "zeroconf": ["_mediabridge._tcp.local."]
+  "version": "0.3.0",
+  "zeroconf": [
+    "_mediabridge._tcp.local."
+  ]
 }

@@ -25,6 +25,12 @@ object Publisher {
         }
     }
 
+    /** One-off events (key presses, notification actions) are queued, never dropped for newer state. */
+    fun sendEvent(url: String?, json: String) {
+        if (url.isNullOrBlank()) return
+        executor.execute { post(url, json.toByteArray(), skipIfNewer = false) }
+    }
+
     private fun drain() {
         while (true) {
             val (url, body) = pending.getAndSet(null) ?: return
@@ -32,10 +38,10 @@ object Publisher {
         }
     }
 
-    private fun post(url: String, body: ByteArray) {
+    private fun post(url: String, body: ByteArray, skipIfNewer: Boolean = true) {
         for (attempt in 1..3) {
             // A newer state arrived meanwhile: don't retry the old one.
-            if (attempt > 1 && pending.get() != null) return
+            if (skipIfNewer && attempt > 1 && pending.get() != null) return
             try {
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"

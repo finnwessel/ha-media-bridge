@@ -43,6 +43,13 @@ class MediaBridgeService : NotificationListenerService() {
     private val handler = Handler(Looper.getMainLooper())
     private var sessionManager: MediaSessionManager? = null
     private val controllers = LinkedHashMap<MediaSession.Token, Tracked>()
+
+    /**
+     * Sessions that dropped out of the active list but still exist. YouTube
+     * marks its paused session inactive when the screen goes off and doesn't
+     * reactivate it on wake, although the video is still open and paused.
+     */
+    private val retained = LinkedHashMap<MediaSession.Token, Tracked>()
     private lateinit var audio: AudioManager
     private var server: HttpServer? = null
     private var discovery: Discovery? = null
@@ -139,8 +146,9 @@ class MediaBridgeService : NotificationListenerService() {
         sessionManager?.removeOnActiveSessionsChangedListener(sessionsListener)
         runCatching { unregisterReceiver(screenReceiver) }
         contentResolver.unregisterContentObserver(volumeObserver)
-        controllers.values.forEach { it.controller.unregisterCallback(it.callback) }
+        (controllers.values + retained.values).forEach { it.controller.unregisterCallback(it.callback) }
         controllers.clear()
+        retained.clear()
         handler.removeCallbacksAndMessages(null)
         server?.stop()
         server = null
@@ -154,13 +162,17 @@ class MediaBridgeService : NotificationListenerService() {
     private fun syncSessions(active: List<MediaController>) {
         val activeTokens = active.map { it.sessionToken }.toSet()
         controllers.keys.filter { it !in activeTokens }.forEach { token ->
-            controllers.remove(token)?.let { it.controller.unregisterCallback(it.callback) }
-            tracks.remove(token)
+            controllers.remove(token)?.let { retained[token] = it }
+        }
+        while (retained.size > MAX_RETAINED) {
+            val oldest = retained.keys.first()
+            forget(oldest)
         }
         // Keep the system's priority order.
         val ordered = LinkedHashMap<MediaSession.Token, Tracked>()
         for (controller in active) {
-            val tracked = controllers[controller.sessionToken] ?: Tracked(controller, callbackFor(controller)).also {
+            val tracked = controllers[controller.sessionToken] ?: retained.remove(controller.sessionToken)
+                ?: Tracked(controller, callbackFor(controller)).also {
                 controller.playbackState?.let { state -> observe(controller, state) }
                 controller.registerCallback(it.callback, handler)
                 Log.i(TAG, "tracking session ${controller.packageName}")
@@ -178,15 +190,33 @@ class MediaBridgeService : NotificationListenerService() {
             schedulePublish()
         }
         override fun onMetadataChanged(metadata: MediaMetadata?) = schedulePublish()
-        override fun onSessionDestroyed() = schedulePublish()
+        override fun onSessionDestroyed() {
+            forget(controller.sessionToken)
+            schedulePublish()
+        }
     }
 
-    /** The session that matters: playing first, then paused/buffering, then whatever the system ranks first. */
+    private fun forget(token: MediaSession.Token) {
+        (controllers.remove(token) ?: retained.remove(token))?.let { it.controller.unregisterCallback(it.callback) }
+        tracks.remove(token)
+    }
+
+    /**
+     * The session that matters: playing first, then paused/buffering, then
+     * whatever the system ranks first. Inactive (retained) sessions count when
+     * playing, or when paused in the app that is in the foreground.
+     */
     private fun primary(): MediaController? {
-        val all = controllers.values.map { it.controller }
-        return all.firstOrNull { stateName(it.playbackState) == "playing" }
-            ?: all.firstOrNull { stateName(it.playbackState) in setOf("paused", "buffering") }
-            ?: all.firstOrNull()
+        val active = controllers.values.map { it.controller }
+        val inactive = retained.values.map { it.controller }.reversed() // newest first
+        val still = setOf("paused", "buffering")
+        return active.firstOrNull { stateName(it.playbackState) == "playing" }
+            ?: inactive.firstOrNull { stateName(it.playbackState) == "playing" }
+            ?: active.firstOrNull { stateName(it.playbackState) in still }
+            ?: inactive.firstOrNull {
+                stateName(it.playbackState) in still && (foreground == null || it.packageName == foreground)
+            }
+            ?: active.firstOrNull()
     }
 
     // ---------------------------------------------------------------- publishing
@@ -217,6 +247,12 @@ class MediaBridgeService : NotificationListenerService() {
         return abs(now - expected) > 3000
     }
 
+    /** Push a one-off event (key press, notification action); never coalesced with state. */
+    fun pushEvent(fields: Map<String, Any?>) {
+        val json = JSONObject(meta() + fields)
+        Publisher.sendEvent(Prefs.webhookUrl(this), json.toString())
+    }
+
     private fun meta() = mapOf("id" to Prefs.deviceId(this), "version" to BuildConfig.VERSION_NAME)
 
     fun snapshotJson(): JSONObject = snapshot().toJson(meta() + ("webhook_url" to Prefs.webhookUrl(this)))
@@ -238,7 +274,10 @@ class MediaBridgeService : NotificationListenerService() {
         val playback = controller.playbackState
         val meta = controller.metadata
         val duration = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 }
+        val art = artwork(meta)
         return base.copy(
+            artworkId = art?.first,
+            artworkUrl = art?.second,
             state = stateName(playback),
             app = controller.packageName,
             appLabel = label(controller.packageName),
@@ -411,15 +450,84 @@ class MediaBridgeService : NotificationListenerService() {
             .getOrDefault(pkg)
     }
 
+    // ---------------------------------------------------------------- artwork
+
+    private var artworkKey: String? = null
+    private var artworkResult: Pair<String, String?>? = null
+
+    /** JPEG of the current cover, served at /artwork. */
+    @Volatile
+    var artworkBytes: ByteArray? = null
+        private set
+
+    /**
+     * (id, url) for the current cover: a web URL if the app provides one,
+     * otherwise a bitmap that is compressed once and served by the API.
+     */
+    private fun artwork(meta: MediaMetadata?): Pair<String, String?>? {
+        if (meta == null) return null
+        val url = listOf(
+            MediaMetadata.METADATA_KEY_ART_URI,
+            MediaMetadata.METADATA_KEY_ALBUM_ART_URI,
+            MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
+        ).firstNotNullOfOrNull { key -> meta.getString(key)?.takeIf { it.startsWith("http") } }
+        val bitmap = listOf(
+            MediaMetadata.METADATA_KEY_ART,
+            MediaMetadata.METADATA_KEY_ALBUM_ART,
+            MediaMetadata.METADATA_KEY_DISPLAY_ICON,
+        ).firstNotNullOfOrNull { meta.getBitmap(it) }
+        // Every getMetadata() unparcels a new Bitmap, so compare by content markers, not identity.
+        val key: String = url ?: bitmap?.let {
+            "${meta.getString(MediaMetadata.METADATA_KEY_TITLE)}|${it.width}x${it.height}|${it.byteCount}"
+        } ?: return null
+        if (key == artworkKey) return artworkResult
+        artworkKey = key
+        artworkResult = if (url != null) {
+            artworkBytes = null
+            Integer.toHexString(url.hashCode()) to url
+        } else {
+            val bytes = Artwork.toJpeg(bitmap!!)
+            artworkBytes = bytes
+            Artwork.id(bytes) to null
+        }
+        return artworkResult
+    }
+
+    // ---------------------------------------------------------------- apps
+
+    /** Launchable apps (TV launcher first), sorted by name. */
+    fun launchableApps(): List<Pair<String, String>> {
+        val pm = packageManager
+        val found = LinkedHashMap<String, String>()
+        for (category in listOf(Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER)) {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(category)
+            for (info in pm.queryIntentActivities(intent, 0)) {
+                val pkg = info.activityInfo.packageName
+                if (pkg != packageName && pkg !in found) found[pkg] = info.loadLabel(pm).toString()
+            }
+        }
+        return found.entries.map { it.key to it.value }.sortedBy { it.second.lowercase() }
+    }
+
+    /**
+     * Starting activities from the background is allowed because the app holds
+     * the "display over other apps" permission (granted via ADB).
+     */
+    private fun launch(pkg: String): Boolean {
+        val pm = packageManager
+        val intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg) ?: return false
+        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        return true
+    }
+
     // ---------------------------------------------------------------- commands
 
     fun runCommand(name: String, args: JSONObject): Boolean {
         Log.i(TAG, "command $name")
         when (name) {
             "volume_set" -> {
-                val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 val level = (args.optDouble("level", -1.0)).takeIf { it in 0.0..1.0 } ?: return false
-                audio.setStreamVolume(AudioManager.STREAM_MUSIC, (level * max).roundToInt(), 0)
+                setVolume(level)
                 return true
             }
             "volume_up" -> {
@@ -428,6 +536,14 @@ class MediaBridgeService : NotificationListenerService() {
             }
             "volume_down" -> {
                 audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                return true
+            }
+            "launch" -> return runCatching { launch(args.optString("package")) }
+                .onFailure { Log.w(TAG, "launch failed: ${it.message}") }.getOrDefault(false)
+            "home" -> {
+                startActivity(
+                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
                 return true
             }
             "mute" -> {
@@ -455,6 +571,30 @@ class MediaBridgeService : NotificationListenerService() {
         return true
     }
 
+    /**
+     * Some TV ROMs (the JMGO projector among them) silently ignore
+     * setStreamVolume() but honour step adjustments, the path the volume keys
+     * take. Set directly, verify, and walk there step by step if it didn't stick.
+     */
+    private fun setVolume(level: Double) {
+        val stream = AudioManager.STREAM_MUSIC
+        val max = audio.getStreamMaxVolume(stream)
+        val target = (level * max).roundToInt().coerceIn(0, max)
+        if (audio.isStreamMute(stream) && target > 0) audio.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0)
+        runCatching { audio.setStreamVolume(stream, target, 0) }
+        var current = audio.getStreamVolume(stream)
+        var steps = 0
+        while (current != target && steps < max + 2) {
+            val direction = if (current < target) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            audio.adjustStreamVolume(stream, direction, 0)
+            val next = audio.getStreamVolume(stream)
+            if (next == current) break // not moving: give up instead of looping
+            current = next
+            steps++
+        }
+        Log.i(TAG, "volume target=$target reached=$current (max $max, $steps steps)")
+    }
+
     // ---------------------------------------------------------------- misc
 
     fun deviceName(): String =
@@ -465,6 +605,7 @@ class MediaBridgeService : NotificationListenerService() {
         private const val DEBOUNCE_MS = 250L
         private const val HEARTBEAT_MS = 30_000L
         private const val FOREGROUND_POLL_MS = 3_000L
+        private const val MAX_RETAINED = 5
         private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
 
         @Volatile

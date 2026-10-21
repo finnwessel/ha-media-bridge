@@ -11,10 +11,35 @@ Two parts in one repository:
 
 | Entity | |
 |---|---|
-| `media_player.<device>` | State (playing, paused, buffering, idle, off), title, artist, app, position/duration, volume, mute. Play/pause/stop/next/previous, seek, volume. |
+| `media_player.<device>` | State (playing, paused, buffering, idle, off), title, artist, cover, app, position/duration, volume, mute. Play/pause/stop/next/previous, seek, volume. Source list = installed apps + Home: selecting one starts it. |
 | `sensor.<device>_media_end` | Timestamp when the current media ends (only while playing with known duration). |
 | `sensor.<device>_foreground_app` | App in the foreground, also without a media session (attribute `package`). |
 | `notify.<device>_screen` | Card in the top-right corner above whatever is playing (`notify.send_message` with title and message). |
+| `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
+
+### Service `media_bridge.show_notification`
+
+Card with optional camera image, up to three buttons and pausing playback:
+
+```yaml
+action: media_bridge.show_notification
+target:
+  entity_id: media_player.beamer
+data:
+  title: Haustür
+  message: Es hat geklingelt
+  image_entity_id: camera.doorbell
+  actions:
+    - id: open
+      title: Öffnen
+    - id: ignore
+      title: Ignorieren
+  tag: door
+  pause_playback: true
+  duration: 30
+```
+
+While buttons are shown the remote controls the card (BACK closes it). The answer fires the event `media_bridge_notification_action` with `action` (button id, `dismissed` or `timeout`), `tag`, `device_id`.
 
 Updates are pushed: play/pause/seek/app/volume changes arrive within ~250 ms, the position every 30 s while playing. A 60 s poll is only a safety net and marks the device unavailable when it is gone.
 
@@ -34,7 +59,13 @@ adb shell cmd notification allow_listener $PKG/$PKG.MediaBridgeService
 adb shell appops set $PKG SYSTEM_ALERT_WINDOW allow
 # Foreground app sensor
 adb shell appops set $PKG GET_USAGE_STATS allow
+# Remote key events (check first that no other accessibility service is enabled:
+#   adb shell settings get secure enabled_accessibility_services)
+adb shell settings put secure enabled_accessibility_services $PKG/$PKG.KeyService
+adb shell settings put secure accessibility_enabled 1
 ```
+
+"Display over other apps" is also what allows starting apps from the source list.
 
 Updates: `adb install -r` with the new APK; permissions stay.
 
@@ -54,11 +85,19 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `POST /pair/start` | – | shows a pairing code (valid 2 min, 5 attempts) |
 | `POST /pair/finish` `{"code"}` | – | returns the token |
 | `GET /state` | Bearer | current snapshot |
+| `GET /apps` | Bearer | launchable apps `[{package, label}]` |
+| `GET /artwork` | Bearer | cover of the current media (JPEG) |
 | `POST /config` `{"webhook_url"}` | Bearer | where to push |
-| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`) |
-| `POST /notify` `{"title", "message", "duration_ms"}` | Bearer | on-screen card |
+| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `home` |
+| `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |
 
-Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `sent_at`.
+Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
+
+## Notes on Android quirks handled by the app
+
+- **Wrong position clock:** some apps (YouTube on Android TV) stamp positions with `uptimeMillis()` instead of `elapsedRealtime()`. Android then extrapolates playing positions ahead by all standby time since boot. The app learns the clock per app from pause states and corrects for it.
+- **Inactive paused sessions:** YouTube marks its paused session inactive when the screen goes off. Such sessions are kept until destroyed and still count when their app is in the foreground.
+- **Ignored `setStreamVolume`:** some ROMs ignore it; the app verifies and falls back to step adjustments.
 
 ## Troubleshooting
 

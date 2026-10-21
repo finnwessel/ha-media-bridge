@@ -49,4 +49,11 @@ def mock_client() -> Generator[MagicMock]:
         client.set_webhook = AsyncMock()
         client.command = AsyncMock()
         client.notify = AsyncMock()
+        client.apps = AsyncMock(
+            return_value=[
+                {"package": "com.netflix.ninja", "label": "Netflix"},
+                {"package": "com.google.android.youtube.tv", "label": "YouTube"},
+            ]
+        )
+        client.artwork = AsyncMock(return_value=b"jpeg-bytes")
         yield client

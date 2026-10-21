@@ -20,7 +20,9 @@ class Request(
     fun json(): JSONObject = if (body.isBlank()) JSONObject() else JSONObject(body)
 }
 
-class Response(val code: Int, val body: String = "{}") {
+class Response(val code: Int, val body: ByteArray, val contentType: String = "application/json") {
+    constructor(code: Int, text: String) : this(code, text.toByteArray())
+
     companion object {
         fun ok(json: JSONObject = JSONObject().put("ok", true)) = Response(200, json.toString())
         fun error(code: Int, message: String) = Response(code, JSONObject().put("error", message).toString())
@@ -74,9 +76,9 @@ class HttpServer(private val port: Int, private val handle: (Request) -> Respons
                 Log.w(TAG, "request failed: ${e.message}")
                 Response.error(500, e.message ?: "error")
             }
-            val body = response.body.toByteArray()
+            val body = response.body
             val head = "HTTP/1.1 ${response.code} ${reason(response.code)}\r\n" +
-                "Content-Type: application/json\r\n" +
+                "Content-Type: ${response.contentType}\r\n" +
                 "Content-Length: ${body.size}\r\n" +
                 "Connection: close\r\n\r\n"
             s.getOutputStream().apply {
@@ -132,6 +134,6 @@ class HttpServer(private val port: Int, private val handle: (Request) -> Respons
     }
 
     companion object {
-        private const val MAX_BODY = 64 * 1024
+        private const val MAX_BODY = 2 * 1024 * 1024 // notification images
     }
 }

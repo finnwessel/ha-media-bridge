@@ -14,7 +14,7 @@ from .api import MediaBridgeClient
 from .const import DOMAIN, LOGGER
 from .coordinator import MediaBridgeConfigEntry, MediaBridgeCoordinator
 
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.NOTIFY, Platform.SENSOR]
+PLATFORMS = [Platform.EVENT, Platform.MEDIA_PLAYER, Platform.NOTIFY, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> bool:

@@ -50,6 +50,59 @@
       "overlay": {
         "name": "Bildschirm"
       }
+    },
+    "event": {
+      "remote": {
+        "name": "Fernbedienung",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "short_press": "Kurz gedrückt",
+              "long_press": "Lang gedrückt"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "show_notification": {
+      "name": "Benachrichtigung anzeigen",
+      "description": "Zeigt eine Karte über dem laufenden Bild, optional mit Kamerabild, bis zu drei Knöpfen und Pausieren der Wiedergabe. Knopfdrücke lösen das Ereignis media_bridge_notification_action aus.",
+      "fields": {
+        "message": {
+          "name": "Nachricht",
+          "description": "Text der Karte."
+        },
+        "title": {
+          "name": "Titel",
+          "description": "Fette erste Zeile."
+        },
+        "image_entity_id": {
+          "name": "Kamera",
+          "description": "Kamera, deren aktuelles Bild angezeigt wird."
+        },
+        "image_url": {
+          "name": "Bild-URL",
+          "description": "Bild, das Home Assistant lädt und auf der Karte zeigt."
+        },
+        "duration": {
+          "name": "Dauer",
+          "description": "Sekunden, bis die Karte verschwindet."
+        },
+        "actions": {
+          "name": "Knöpfe",
+          "description": "Bis zu drei Knöpfe: Liste aus Objekten mit id und title oder einfachen Texten. Solange Knöpfe angezeigt werden, steuert die Fernbedienung die Karte; ZURÜCK schließt sie."
+        },
+        "tag": {
+          "name": "Tag",
+          "description": "Wird mit dem Knopf-Ereignis zurückgegeben, um Benachrichtigungen zu unterscheiden."
+        },
+        "pause_playback": {
+          "name": "Wiedergabe pausieren",
+          "description": "Pausiert die Wiedergabe, wenn die Karte erscheint."
+        }
+      }
     }
   }
 }

@@ -16,3 +16,15 @@ CONF_DEVICE_ID = "device_id"
 
 # How long notifications stay on screen by default.
 DEFAULT_NOTIFY_DURATION_MS = 8000
+
+APPS_INTERVAL = timedelta(hours=1)
+
+EVENT_NOTIFICATION_ACTION = f"{DOMAIN}_notification_action"
+
+# Source entry that goes to the launcher instead of starting an app.
+HOME_SOURCE = "Home"
+
+
+def signal_key(entry_id: str) -> str:
+    """Dispatcher signal for key presses of one device."""
+    return f"{DOMAIN}_{entry_id}_key"

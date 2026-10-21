@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Any
+
+import voluptuous as vol
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -12,12 +15,33 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import MediaBridgeError
+from .const import HOME_SOURCE, LOGGER
 from .coordinator import MediaBridgeConfigEntry
 from .entity import MediaBridgeEntity
+
+SERVICE_SHOW_NOTIFICATION = "show_notification"
+
+ACTION_SCHEMA = vol.Any(
+    cv.string,
+    vol.Schema({vol.Required("id"): cv.string, vol.Optional("title"): cv.string}),
+)
+
+SHOW_NOTIFICATION_SCHEMA = {
+    vol.Required("message"): cv.string,
+    vol.Optional("title"): cv.string,
+    vol.Optional("image_entity_id"): cv.entity_domain("camera"),
+    vol.Optional("image_url"): cv.url,
+    vol.Optional("duration", default=10): vol.All(vol.Coerce(int), vol.Range(min=2, max=300)),
+    vol.Optional("actions", default=[]): vol.All(cv.ensure_list, [ACTION_SCHEMA], vol.Length(max=3)),
+    vol.Optional("tag"): cv.string,
+    vol.Optional("pause_playback", default=False): cv.boolean,
+}
 
 PARALLEL_UPDATES = 0
 
@@ -49,6 +73,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the media player."""
     async_add_entities([MediaBridgeMediaPlayer(entry.runtime_data)])
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_SHOW_NOTIFICATION, SHOW_NOTIFICATION_SCHEMA, "async_show_notification"
+    )
 
 
 class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
@@ -67,10 +95,109 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
-        """Seeking only where the playing app supports it."""
+        """Seeking only where the playing app supports it; sources once the app list is known."""
+        features = BASE_FEATURES
         if self._data.get("can_seek"):
-            return BASE_FEATURES | MediaPlayerEntityFeature.SEEK
-        return BASE_FEATURES
+            features |= MediaPlayerEntityFeature.SEEK
+        if self.coordinator.apps:
+            features |= MediaPlayerEntityFeature.SELECT_SOURCE
+        return features
+
+    @property
+    def source_list(self) -> list[str] | None:
+        """Launchable apps, plus the home screen."""
+        if not self.coordinator.apps:
+            return None
+        return [HOME_SOURCE, *(app["label"] for app in self.coordinator.apps)]
+
+    @property
+    def source(self) -> str | None:
+        """App in the foreground (falls back to the app that owns the media session)."""
+        return self._data.get("foreground_label") or self._data.get("app_label")
+
+    async def async_select_source(self, source: str) -> None:
+        """Bring the launcher or an app to the front."""
+        if source == HOME_SOURCE:
+            await self._command("home")
+            return
+        package = next((a["package"] for a in self.coordinator.apps if a["label"] == source), None)
+        if package is None:
+            raise ServiceValidationError(f"Unknown app: {source}")
+        await self._command("launch", package=package)
+
+    @property
+    def media_image_url(self) -> str | None:
+        """Cover URL when the app provides one on the web."""
+        return self._data.get("artwork_url")
+
+    @property
+    def media_image_remotely_accessible(self) -> bool:
+        """Web covers can be loaded by the browser directly."""
+        return self._data.get("artwork_url") is not None
+
+    @property
+    def media_image_hash(self) -> str | None:
+        """Changes whenever the cover changes, so the frontend reloads it."""
+        if self._data.get("state") in (None, "off"):
+            return None
+        return self._data.get("artwork_id")
+
+    async def async_get_media_image(self) -> tuple[bytes | None, str | None]:
+        """Cover bitmaps are served by the device API."""
+        if self.media_image_url:
+            return await super().async_get_media_image()
+        try:
+            data = await self.coordinator.client.artwork()
+        except MediaBridgeError:
+            return None, None
+        return (data, "image/jpeg") if data else (None, None)
+
+    async def async_show_notification(
+        self,
+        message: str,
+        duration: int,
+        actions: list,
+        pause_playback: bool,
+        title: str | None = None,
+        image_entity_id: str | None = None,
+        image_url: str | None = None,
+        tag: str | None = None,
+    ) -> None:
+        """Card on the screen, optionally with an image, buttons and pausing playback."""
+        image = await self._async_load_image(image_entity_id, image_url)
+        buttons = [
+            {"id": a, "title": a} if isinstance(a, str) else {"id": a["id"], "title": a.get("title", a["id"])}
+            for a in actions
+        ]
+        try:
+            await self.coordinator.client.notify(
+                message,
+                title,
+                duration * 1000,
+                image=base64.b64encode(image).decode() if image else None,
+                actions=buttons,
+                tag=tag,
+                pause=pause_playback,
+            )
+        except MediaBridgeError as err:
+            raise HomeAssistantError(f"Notification failed: {err}") from err
+
+    async def _async_load_image(self, entity_id: str | None, url: str | None) -> bytes | None:
+        """Snapshot of a camera or a fetched URL; the device itself can't reach either with auth."""
+        try:
+            if entity_id:
+                # Imported on use: the camera component pulls in image libraries.
+                from homeassistant.components.camera import async_get_image  # noqa: PLC0415
+
+                return (await async_get_image(self.hass, entity_id, width=800)).content
+            if url:
+                session = async_get_clientsession(self.hass)
+                async with session.get(url, timeout=10) as resp:
+                    resp.raise_for_status()
+                    return await resp.read()
+        except Exception as err:  # noqa: BLE001 - an image must never block the notification
+            LOGGER.warning("Notification image not available: %s", err)
+        return None
 
     @property
     def state(self) -> MediaPlayerState | None:

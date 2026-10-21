@@ -50,6 +50,59 @@
       "overlay": {
         "name": "Screen"
       }
+    },
+    "event": {
+      "remote": {
+        "name": "Remote",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "short_press": "Short press",
+              "long_press": "Long press"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "show_notification": {
+      "name": "Show notification",
+      "description": "Shows a card on the screen above whatever is playing, optionally with a camera image, up to three buttons and pausing playback. Button presses fire the event media_bridge_notification_action.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "Text of the card."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Bold first line."
+        },
+        "image_entity_id": {
+          "name": "Camera",
+          "description": "Camera whose current image is shown."
+        },
+        "image_url": {
+          "name": "Image URL",
+          "description": "Image fetched by Home Assistant and shown on the card."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds until the card disappears."
+        },
+        "actions": {
+          "name": "Buttons",
+          "description": "Up to three buttons: list of objects with id and title, or plain texts. While buttons are shown, the remote controls the card; BACK closes it."
+        },
+        "tag": {
+          "name": "Tag",
+          "description": "Returned with the button event, to tell notifications apart."
+        },
+        "pause_playback": {
+          "name": "Pause playback",
+          "description": "Pause what is playing when the card appears."
+        }
+      }
     }
   }
 }

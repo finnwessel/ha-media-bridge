@@ -1,8 +1,12 @@
 package de.finnwessel.mediabridge
 
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
+import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.concurrent.FutureTask
@@ -15,9 +19,13 @@ import java.util.concurrent.TimeUnit
  *   POST /pair/start    – shows a 6-digit code on screen (open)
  *   POST /pair/finish   – {"code"} → {"token"} (open, 5 attempts per code)
  *   GET  /state         – current snapshot                     (token)
+ *   GET  /apps          – launchable apps                      (token)
+ *   GET  /artwork       – cover of the current media as JPEG   (token)
  *   POST /config        – {"webhook_url"}                      (token)
  *   POST /command       – {"command", ...}                     (token)
- *   POST /notify        – {"title", "message", "duration_ms"}  (token)
+ *   POST /notify        – {"title", "message", "duration_ms",
+ *                          "image" (base64), "actions" [{"id","title"}],
+ *                          "tag", "pause"}                     (token)
  */
 class Api(private val service: MediaBridgeService) {
     private val pairing = Pairing()
@@ -29,6 +37,8 @@ class Api(private val service: MediaBridgeService) {
         "POST" to "/pair/finish" -> pairFinish(req)
         else -> if (!authorized(req)) Response.error(401, "unauthorized") else when (req.method to req.path) {
             "GET" to "/state" -> Response.ok(onMain { service.snapshotJson() })
+            "GET" to "/apps" -> apps()
+            "GET" to "/artwork" -> artwork()
             "POST" to "/config" -> config(req)
             "POST" to "/command" -> command(req)
             "POST" to "/notify" -> notify(req)
@@ -59,6 +69,19 @@ class Api(private val service: MediaBridgeService) {
         return Response.ok(info().put("token", Prefs.token(service)))
     }
 
+    private fun apps(): Response {
+        val list = JSONArray()
+        service.launchableApps().forEach { (pkg, label) ->
+            list.put(JSONObject().put("package", pkg).put("label", label))
+        }
+        return Response.ok(JSONObject().put("apps", list))
+    }
+
+    private fun artwork(): Response {
+        val bytes = service.artworkBytes ?: return Response.error(404, "no artwork")
+        return Response(200, bytes, "image/jpeg")
+    }
+
     private fun config(req: Request): Response {
         val body = req.json()
         if (body.has("webhook_url")) {
@@ -81,7 +104,27 @@ class Api(private val service: MediaBridgeService) {
         val message = body.optString("message").takeIf { it.isNotBlank() }
             ?: return Response.error(400, "message missing")
         val title = body.optString("title").takeIf { it.isNotBlank() && !body.isNull("title") }
-        Overlay.show(service, title, message, body.optLong("duration_ms", 8000))
+        val image = body.optString("image").takeIf { it.isNotBlank() && !body.isNull("image") }?.let {
+            runCatching {
+                val bytes = Base64.decode(it, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.onFailure { e -> Log.w(TAG, "notification image unreadable: ${e.message}") }.getOrNull()
+        }
+        val actions = body.optJSONArray("actions")?.let { array ->
+            (0 until array.length()).mapNotNull { i ->
+                val a = array.optJSONObject(i) ?: return@mapNotNull null
+                val id = a.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                OverlayAction(id, a.optString("title").ifBlank { id })
+            }.take(3)
+        } ?: emptyList()
+        val tag = body.optString("tag").takeIf { it.isNotBlank() && !body.isNull("tag") }
+        if (body.optBoolean("pause", false)) onMain { service.runCommand("pause", JSONObject()) }
+
+        Overlay.show(service, title, message, body.optLong("duration_ms", 8000), image, actions) { result ->
+            if (actions.isNotEmpty()) {
+                service.pushEvent(mapOf("event" to "notification_action", "action" to result, "tag" to tag))
+            }
+        }
         return Response.ok()
     }
 

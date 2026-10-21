@@ -1,0 +1,42 @@
+show_notification:
+  target:
+    entity:
+      integration: media_bridge
+      domain: media_player
+  fields:
+    message:
+      required: true
+      example: "Jemand steht vor der Tür"
+      selector:
+        text:
+    title:
+      example: "Haustür"
+      selector:
+        text:
+    image_entity_id:
+      selector:
+        entity:
+          domain: camera
+    image_url:
+      selector:
+        text:
+          type: url
+    duration:
+      default: 10
+      selector:
+        number:
+          min: 2
+          max: 300
+          unit_of_measurement: s
+    actions:
+      example: '[{"id": "open", "title": "Öffnen"}, {"id": "ignore", "title": "Ignorieren"}]'
+      selector:
+        object:
+    tag:
+      example: "doorbell"
+      selector:
+        text:
+    pause_playback:
+      default: false
+      selector:
+        boolean:
