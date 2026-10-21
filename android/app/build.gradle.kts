@@ -11,8 +11,12 @@ android {
         applicationId = "de.finnwessel.mediabridge"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // Fixed key committed to the repo so every CI build can be installed over
@@ -36,6 +40,11 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("shared")
         }
+    }
+
+    lint {
+        // Sideloaded utility: Play-Store-only checks don't apply.
+        disable += setOf("ProtectedPermissions", "QueryAllPackagesPermission")
     }
 
     compileOptions {
