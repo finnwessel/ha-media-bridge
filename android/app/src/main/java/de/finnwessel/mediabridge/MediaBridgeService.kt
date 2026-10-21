@@ -161,7 +161,7 @@ class MediaBridgeService : NotificationListenerService() {
         val ordered = LinkedHashMap<MediaSession.Token, Tracked>()
         for (controller in active) {
             val tracked = controllers[controller.sessionToken] ?: Tracked(controller, callbackFor(controller)).also {
-                controller.playbackState?.let { state -> observe(controller.sessionToken, state) }
+                controller.playbackState?.let { state -> observe(controller, state) }
                 controller.registerCallback(it.callback, handler)
                 Log.i(TAG, "tracking session ${controller.packageName}")
             }
@@ -174,7 +174,7 @@ class MediaBridgeService : NotificationListenerService() {
 
     private fun callbackFor(controller: MediaController) = object : MediaController.Callback() {
         override fun onPlaybackStateChanged(state: PlaybackState?) {
-            state?.let { observe(controller.sessionToken, it) }
+            state?.let { observe(controller, it) }
             schedulePublish()
         }
         override fun onMetadataChanged(metadata: MediaMetadata?) = schedulePublish()
@@ -247,43 +247,88 @@ class MediaBridgeService : NotificationListenerService() {
             artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
             album = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM),
             durationMs = duration,
-            positionMs = playback?.let { currentPosition(controller.sessionToken, it, duration) },
+            positionMs = playback?.let { currentPosition(controller, it, duration) },
             canSeek = playback != null && (playback.actions and PlaybackState.ACTION_SEEK_TO) != 0L,
         )
     }
 
     /**
-     * Per-session correction for apps that keep a stale lastPositionUpdateTime
-     * while playing (YouTube on Android TV). The system extrapolates every
-     * PLAYING state from that stamp and hands it to us freshly stamped, so the
-     * error can't be seen in a single report. Paused/buffering positions are not
-     * extrapolated and therefore right: remember the last one, and on the switch
-     * to PLAYING measure how far the system's value is ahead of it. That offset
-     * is subtracted until playback stops again. Well-behaved apps get offset 0.
+     * Position tracking that survives apps stamping with the wrong clock.
+     *
+     * PlaybackState.lastPositionUpdateTime must be SystemClock.elapsedRealtime().
+     * Some apps (YouTube on Android TV) use uptimeMillis(), which stops during
+     * standby. For PLAYING states the system extrapolates from that stamp before
+     * handing the state to us (and re-stamps it), so the position is ahead by all
+     * standby time since boot, and clamped at the duration near the end.
+     *
+     * Non-playing states are passed through untouched: their fresh stamp shows
+     * which clock an app uses (remembered per package). For such apps we take the
+     * position of each PLAYING report minus the standby time, and extrapolate
+     * ourselves from there; if the system clamped it, we continue from the last
+     * still position instead.
      */
     private class PositionTrack {
-        var lastStillPosition: Long? = null
+        var stillPosition: Long? = null
+        var basePosition: Long? = null
+        var baseTime = 0L
+        var speed = 1f
         var playing = false
-        var offset = 0L
     }
 
     private val tracks = HashMap<MediaSession.Token, PositionTrack>()
 
-    private fun observe(token: MediaSession.Token, state: PlaybackState) {
+    private fun usesUptime(pkg: String) = Prefs.usesUptimeClock(this, pkg)
+
+    private fun observe(controller: MediaController, state: PlaybackState) {
+        val token = controller.sessionToken
         val track = tracks.getOrPut(token) { PositionTrack() }
+        val now = SystemClock.elapsedRealtime()
         if (stateName(state) != "playing") {
-            if (state.position >= 0) track.lastStillPosition = state.position
+            learnClock(controller.packageName, state)
+            if (state.position >= 0) track.stillPosition = state.position
             track.playing = false
+            track.basePosition = null
             return
         }
-        if (track.playing) return
+        val reported = systemPosition(state) ?: return
+        val duration = controller.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 }
+        val speed = state.playbackSpeed.coerceAtLeast(0f)
+        val position = if (usesUptime(controller.packageName)) {
+            val standby = now - SystemClock.uptimeMillis()
+            val clamped = duration != null && reported >= duration - 1_000
+            if (clamped) {
+                // The system capped the inflated value at the end: real position unknown.
+                // Keep running from what we know.
+                if (track.playing) track.basePosition?.let { it + ((now - track.baseTime) * track.speed).toLong() }
+                else track.stillPosition
+            } else {
+                reported - (standby * speed).toLong()
+            }
+        } else {
+            reported
+        }
+        track.basePosition = position?.coerceAtLeast(0)
+        track.baseTime = now
+        track.speed = speed
         track.playing = true
-        val still = track.lastStillPosition
-        val now = systemPosition(state)
-        val ahead = if (still != null && now != null) now - still else 0L
-        // Up to 3 s ahead is normal (time between the reports); only correct beyond that.
-        track.offset = if (ahead > 3_000) ahead else 0L
-        if (track.offset > 0) Log.i(TAG, "position correction: system is ${track.offset} ms ahead")
+    }
+
+    /** A fresh non-playing stamp tells which clock the app uses. */
+    private fun learnClock(pkg: String, state: PlaybackState) {
+        val stamp = state.lastPositionUpdateTime
+        if (stamp <= 0) return
+        val elapsed = SystemClock.elapsedRealtime()
+        val uptime = SystemClock.uptimeMillis()
+        if (elapsed - uptime < 5_000) return // no standby since boot: can't tell
+        val uptimeClock = when {
+            abs(uptime - stamp) < 2_000 -> true
+            abs(elapsed - stamp) < 2_000 -> false
+            else -> return // old stamp, not conclusive
+        }
+        if (uptimeClock != usesUptime(pkg)) {
+            Log.i(TAG, "$pkg stamps positions with ${if (uptimeClock) "uptimeMillis" else "elapsedRealtime"}")
+            Prefs.setUsesUptimeClock(this, pkg, uptimeClock)
+        }
     }
 
     /** Position as the system reports it, extrapolated to now. */
@@ -294,11 +339,17 @@ class MediaBridgeService : NotificationListenerService() {
         return state.position + (elapsed * state.playbackSpeed.coerceAtLeast(0f)).toLong()
     }
 
-    private fun currentPosition(token: MediaSession.Token, state: PlaybackState, durationMs: Long?): Long? {
-        val system = systemPosition(state) ?: return null
-        val offset = if (stateName(state) == "playing") tracks[token]?.offset ?: 0L else 0L
-        val position = (system - offset).coerceAtLeast(0)
-        return if (durationMs != null) position.coerceAtMost(durationMs) else position
+    private fun currentPosition(controller: MediaController, state: PlaybackState, durationMs: Long?): Long? {
+        val track = tracks[controller.sessionToken]
+        val position = if (stateName(state) == "playing") {
+            if (track == null || !track.playing) observe(controller, state)
+            val t = tracks[controller.sessionToken]
+            val base = t?.basePosition ?: return systemPosition(state)
+            base + ((SystemClock.elapsedRealtime() - t.baseTime) * t.speed).toLong()
+        } else {
+            state.position.takeIf { it >= 0 } ?: return null
+        }
+        return if (durationMs != null) position.coerceIn(0, durationMs) else position.coerceAtLeast(0)
     }
 
     private fun stateName(state: PlaybackState?): String = when (state?.state) {

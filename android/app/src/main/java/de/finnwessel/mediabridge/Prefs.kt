@@ -34,6 +34,14 @@ object Prefs {
         }
     }
 
+    /** Apps known to stamp playback positions with uptimeMillis() instead of elapsedRealtime(). */
+    fun usesUptimeClock(context: Context, pkg: String): Boolean =
+        prefs(context).getBoolean("uptime_clock:$pkg", false)
+
+    fun setUsesUptimeClock(context: Context, pkg: String, value: Boolean) {
+        prefs(context).edit().putBoolean("uptime_clock:$pkg", value).apply()
+    }
+
     private fun newToken(): String {
         val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
         return bytes.joinToString("") { "%02x".format(it) }
