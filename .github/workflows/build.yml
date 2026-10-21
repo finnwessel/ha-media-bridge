@@ -36,8 +36,18 @@ jobs:
           name: ha-media-bridge
           path: ha-media-bridge.apk
 
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Read version
+        id: version
+        run: echo "name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+
+      # Every push to main publishes (or updates) the release for the current
+      # versionName, so the APK is always downloadable without logging in.
+      - name: Publish release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: v${{ steps.version.outputs.name }}
+          target_commitish: ${{ github.sha }}
           files: ha-media-bridge.apk
+          fail_on_unmatched_files: true
