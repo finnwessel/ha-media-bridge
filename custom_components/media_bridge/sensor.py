@@ -28,7 +28,10 @@ def media_end(data: dict[str, Any]) -> datetime | None:
     received = data.get("received_at")
     if data.get("state") != "playing" or not duration or position is None or received is None:
         return None
-    remaining = max(duration - position, 0)
+    if position >= duration:
+        # Implausible report (position at or past the end): better no value than "now".
+        return None
+    remaining = duration - position
     return (received + timedelta(milliseconds=remaining)).replace(microsecond=0)
 
 

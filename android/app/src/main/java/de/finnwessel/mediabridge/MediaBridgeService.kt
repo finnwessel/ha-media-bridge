@@ -155,6 +155,7 @@ class MediaBridgeService : NotificationListenerService() {
         val activeTokens = active.map { it.sessionToken }.toSet()
         controllers.keys.filter { it !in activeTokens }.forEach { token ->
             controllers.remove(token)?.let { it.controller.unregisterCallback(it.callback) }
+            positionAnchors.remove(token)
         }
         // Keep the system's priority order.
         val ordered = LinkedHashMap<MediaSession.Token, Tracked>()
@@ -231,6 +232,7 @@ class MediaBridgeService : NotificationListenerService() {
         val controller = primary() ?: return base
         val playback = controller.playbackState
         val meta = controller.metadata
+        val duration = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 }
         return base.copy(
             state = stateName(playback),
             app = controller.packageName,
@@ -239,17 +241,36 @@ class MediaBridgeService : NotificationListenerService() {
                 ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE),
             artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
             album = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM),
-            durationMs = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 },
-            positionMs = playback?.let(::currentPosition),
+            durationMs = duration,
+            positionMs = playback?.let { currentPosition(controller.sessionToken, it, duration) },
             canSeek = playback != null && (playback.actions and PlaybackState.ACTION_SEEK_TO) != 0L,
         )
     }
 
-    private fun currentPosition(state: PlaybackState): Long? {
+    /** When we first saw each position report, per session: our own clock as fallback anchor. */
+    private val positionAnchors = HashMap<MediaSession.Token, Pair<String, Long>>()
+
+    /**
+     * Position extrapolated to now. Apps are supposed to stamp
+     * lastPositionUpdateTime with elapsedRealtime(), but some (YouTube on
+     * Android TV) use another clock or a stale value. The app's stamp is used
+     * only when it is plausible against the moment we first saw that report;
+     * otherwise that moment is the anchor. Never beyond the duration.
+     */
+    private fun currentPosition(token: MediaSession.Token, state: PlaybackState, durationMs: Long?): Long? {
         if (state.position < 0) return null
-        if (state.state != PlaybackState.STATE_PLAYING) return state.position
-        val elapsed = SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
-        return state.position + (elapsed * state.playbackSpeed).toLong()
+        val now = SystemClock.elapsedRealtime()
+        val reportKey = "${state.state}|${state.position}|${state.lastPositionUpdateTime}"
+        val anchor = positionAnchors[token]?.takeIf { it.first == reportKey }?.second
+            ?: now.also { positionAnchors[token] = reportKey to it }
+        var position = state.position
+        if (state.state == PlaybackState.STATE_PLAYING) {
+            val sinceSeen = now - anchor
+            val sinceStamp = now - state.lastPositionUpdateTime
+            val elapsed = if (state.lastPositionUpdateTime > 0 && sinceStamp in 0..(sinceSeen + 2_000)) sinceStamp else sinceSeen
+            position += (elapsed * state.playbackSpeed.coerceAtLeast(0f)).toLong()
+        }
+        return if (durationMs != null) position.coerceAtMost(durationMs) else position
     }
 
     private fun stateName(state: PlaybackState?): String = when (state?.state) {
@@ -279,6 +300,13 @@ class MediaBridgeService : NotificationListenerService() {
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) latest = event.packageName
+        }
+        if (latest == null && foreground == null) {
+            // App opened before the window we can see events for: take the most recently used one.
+            latest = usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, now - 24 * 60 * 60 * 1000, now)
+                ?.filter { it.lastTimeUsed > 0 && it.packageName != packageName }
+                ?.maxByOrNull { it.lastTimeUsed }
+                ?.packageName
         }
         if (latest != null && latest != foreground) {
             foreground = latest
