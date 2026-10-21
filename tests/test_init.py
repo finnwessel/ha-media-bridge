@@ -122,6 +122,6 @@ async def test_version_follows_app_updates(
     client = await hass_client_no_auth()
     await client.post("/api/webhook/hook", json={**PLAYING, "version": "9.9.9"})
     await hass.async_block_till_done()
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "dev-1")})
-    assert device.sw_version == "9.9.9"
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert [d.sw_version for d in devices] == ["9.9.9"]
     assert entry.data["version"] == "9.9.9"

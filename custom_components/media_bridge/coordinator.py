@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import MediaBridgeAuthError, MediaBridgeClient, MediaBridgeError
-from .const import DOMAIN, LOGGER, POLL_INTERVAL
+from .const import LOGGER, POLL_INTERVAL
 
 type MediaBridgeConfigEntry = ConfigEntry[MediaBridgeCoordinator]
 
@@ -72,5 +72,5 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self.hass.config_entries.async_update_entry(entry, data={**entry.data, "version": version})
         registry = dr.async_get(self.hass)
-        if device := registry.async_get_device(identifiers={(DOMAIN, entry.unique_id)}):
+        for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
             registry.async_update_device(device.id, sw_version=version)
