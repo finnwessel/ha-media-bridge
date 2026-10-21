@@ -1,0 +1,55 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Media Bridge",
+        "description": "Enter the address of the device running the Media Bridge app.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "discovery_confirm": {
+        "description": "Set up {name}? A pairing code will appear on its screen."
+      },
+      "pair": {
+        "title": "Pairing code",
+        "description": "A 6-digit code is now shown on {name}. Enter it here. Leave the field empty and submit to show a new code.",
+        "data": {
+          "code": "Code"
+        }
+      },
+      "reauth_confirm": {
+        "description": "{name} no longer accepts the stored token. Submit to show a new pairing code on its screen."
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the device. Is the app installed and notification access granted?",
+      "invalid_code": "Wrong or expired code."
+    },
+    "abort": {
+      "already_configured": "This device is already set up.",
+      "cannot_connect": "Could not reach the device.",
+      "invalid_discovery": "The discovered device did not announce an ID.",
+      "not_ipv4": "Only IPv4 addresses are supported.",
+      "reauth_successful": "Paired again.",
+      "wrong_device": "A different device answered the pairing."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "media_end": {
+        "name": "Media end"
+      },
+      "foreground_app": {
+        "name": "Foreground app"
+      }
+    },
+    "notify": {
+      "overlay": {
+        "name": "Screen"
+      }
+    }
+  }
+}

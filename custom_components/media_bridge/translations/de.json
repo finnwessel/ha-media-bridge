@@ -1,0 +1,55 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Media Bridge",
+        "description": "Adresse des Geräts mit der Media-Bridge-App eingeben.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      },
+      "discovery_confirm": {
+        "description": "{name} einrichten? Auf dem Bildschirm erscheint ein Kopplungscode."
+      },
+      "pair": {
+        "title": "Kopplungscode",
+        "description": "Auf {name} wird jetzt ein 6-stelliger Code angezeigt. Gib ihn hier ein. Feld leer lassen und absenden, um einen neuen Code anzuzeigen.",
+        "data": {
+          "code": "Code"
+        }
+      },
+      "reauth_confirm": {
+        "description": "{name} akzeptiert das gespeicherte Token nicht mehr. Absenden, um einen neuen Kopplungscode anzuzeigen."
+      }
+    },
+    "error": {
+      "cannot_connect": "Gerät nicht erreichbar. Ist die App installiert und der Zugriff auf Benachrichtigungen erteilt?",
+      "invalid_code": "Falscher oder abgelaufener Code."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits eingerichtet.",
+      "cannot_connect": "Gerät nicht erreichbar.",
+      "invalid_discovery": "Das gefundene Gerät hat keine ID gemeldet.",
+      "not_ipv4": "Nur IPv4-Adressen werden unterstützt.",
+      "reauth_successful": "Erneut gekoppelt.",
+      "wrong_device": "Ein anderes Gerät hat auf die Kopplung geantwortet."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "media_end": {
+        "name": "Medienende"
+      },
+      "foreground_app": {
+        "name": "App im Vordergrund"
+      }
+    },
+    "notify": {
+      "overlay": {
+        "name": "Bildschirm"
+      }
+    }
+  }
+}

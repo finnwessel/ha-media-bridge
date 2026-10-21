@@ -1,0 +1,65 @@
+"""State handling for one Media Bridge device: pushed by webhook, polled as fallback."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
+
+from .api import MediaBridgeAuthError, MediaBridgeClient, MediaBridgeError
+from .const import LOGGER, POLL_INTERVAL
+
+type MediaBridgeConfigEntry = ConfigEntry[MediaBridgeCoordinator]
+
+
+class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Holds the latest snapshot of a device."""
+
+    config_entry: MediaBridgeConfigEntry
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: MediaBridgeConfigEntry,
+        client: MediaBridgeClient,
+    ) -> None:
+        """Initialize the coordinator."""
+        super().__init__(
+            hass,
+            LOGGER,
+            config_entry=entry,
+            name=entry.title,
+            update_interval=POLL_INTERVAL,
+        )
+        self.client = client
+        self.webhook_url: str | None = None
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            data = await self.client.state()
+            if self.webhook_url and data.get("webhook_url") != self.webhook_url:
+                LOGGER.debug("Sending webhook URL to %s", self.config_entry.title)
+                await self.client.set_webhook(self.webhook_url)
+        except MediaBridgeAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except MediaBridgeError as err:
+            raise UpdateFailed(f"Device not reachable: {err}") from err
+        return self._stamp(data)
+
+    def async_push(self, data: dict[str, Any]) -> None:
+        """Handle a state pushed by the device."""
+        if data.get("id") not in (None, self.config_entry.unique_id):
+            LOGGER.warning("Ignoring push from unexpected device %s", data.get("id"))
+            return
+        self.async_set_updated_data(self._stamp(data))
+
+    @staticmethod
+    def _stamp(data: dict[str, Any]) -> dict[str, Any]:
+        # The device extrapolates its position to the moment it sends, so the
+        # time of arrival is the reference for position and end time.
+        data["received_at"] = dt_util.utcnow()
+        return data
