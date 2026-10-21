@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import re
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -35,6 +36,52 @@ def media_end(data: dict[str, Any]) -> datetime | None:
     return (received + timedelta(milliseconds=remaining)).replace(microsecond=0)
 
 
+AUDIO_OUTPUTS = ["speaker", "hdmi", "hdmi_arc", "bluetooth", "headphones", "usb", "line_out"]
+
+CONTENT_TYPES = ["movie", "episode", "clip", "music", "live"]
+
+# Apps whose sessions are music, whatever the length.
+MUSIC_APPS = {
+    "com.spotify.tv.android",
+    "com.spotify.music",
+    "com.google.android.apps.youtube.music",
+    "com.amazon.mp3",
+    "com.apple.android.music",
+    "deezer.android.tv",
+    "com.aspiro.tidal",
+    "io.music_assistant.companion",
+}
+
+# Video apps that carry user clips as well as long-form content.
+CLIP_APPS = {"com.google.android.youtube.tv", "com.google.android.youtube", "com.zhiliaoapp.musically"}
+
+EPISODE_PATTERN = re.compile(
+    r"(\bS\d{1,2}\s*[:.]?\s*[EF]\d{1,3}\b|\b(Folge|Episode|Staffel|Season)\s*\d+)", re.IGNORECASE
+)
+
+
+def content_type(data: dict[str, Any]) -> str | None:
+    """Rough kind of what is playing: movie, episode, clip, music or live."""
+    if data.get("state") in (None, "off", "idle", "stopped") or not data.get("app"):
+        return None
+    app = data["app"]
+    duration = (data.get("duration_ms") or 0) / 60_000
+    title = " ".join(filter(None, (data.get("title"), data.get("album"))))
+    if app in MUSIC_APPS:
+        return "music"
+    if duration <= 0:
+        return "live"
+    if EPISODE_PATTERN.search(title):
+        return "episode"
+    if app in CLIP_APPS:
+        if duration < 20:
+            return "clip"
+        return "movie" if duration >= 75 else "episode"
+    if duration < 15:
+        return "clip"
+    return "movie" if duration >= 75 else "episode"
+
+
 @dataclass(frozen=True, kw_only=True)
 class MediaBridgeSensorDescription(SensorEntityDescription):
     """Sensor description with value and attribute functions."""
@@ -49,6 +96,26 @@ SENSORS: tuple[MediaBridgeSensorDescription, ...] = (
         translation_key="media_end",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=media_end,
+    ),
+    MediaBridgeSensorDescription(
+        key="content_type",
+        translation_key="content_type",
+        device_class=SensorDeviceClass.ENUM,
+        options=CONTENT_TYPES,
+        value_fn=content_type,
+    ),
+    MediaBridgeSensorDescription(
+        key="up_next",
+        translation_key="up_next",
+        value_fn=lambda data: data.get("next_title"),
+    ),
+    MediaBridgeSensorDescription(
+        key="audio_output",
+        translation_key="audio_output",
+        device_class=SensorDeviceClass.ENUM,
+        options=AUDIO_OUTPUTS,
+        value_fn=lambda data: data.get("audio_output") if data.get("audio_output") in AUDIO_OUTPUTS else None,
+        attrs_fn=lambda data: {"device_name": data.get("audio_output_name")},
     ),
     MediaBridgeSensorDescription(
         key="foreground_app",

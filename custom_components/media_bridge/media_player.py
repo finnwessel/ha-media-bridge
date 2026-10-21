@@ -13,6 +13,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
+    MediaType,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -63,6 +64,7 @@ BASE_FEATURES = (
     | MediaPlayerEntityFeature.VOLUME_SET
     | MediaPlayerEntityFeature.VOLUME_STEP
     | MediaPlayerEntityFeature.VOLUME_MUTE
+    | MediaPlayerEntityFeature.PLAY_MEDIA
 )
 
 
@@ -124,6 +126,26 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
         if package is None:
             raise ServiceValidationError(f"Unknown app: {source}")
         await self._command("launch", package=package)
+
+    async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
+        """Open a link (YouTube, Netflix, any URL an app handles) or start an app.
+
+        media_type "app": media_id is a package name or the app's label.
+        Anything with a URL scheme is opened as a link.
+        """
+        if media_type == MediaType.APP:
+            package = next(
+                (a["package"] for a in self.coordinator.apps if media_id in (a["package"], a["label"])),
+                media_id,
+            )
+            await self._command("launch", package=package)
+            return
+        if "://" in media_id:
+            await self._command("open_url", url=media_id)
+            return
+        raise ServiceValidationError(
+            f"Unsupported media: {media_type} {media_id}. Use a link, or media_content_type 'app' with a package."
+        )
 
     @property
     def media_image_url(self) -> str | None:

@@ -44,6 +44,31 @@
       },
       "foreground_app": {
         "name": "Foreground app"
+      },
+      "content_type": {
+        "name": "Content type",
+        "state": {
+          "movie": "Movie",
+          "episode": "Episode",
+          "clip": "Clip",
+          "music": "Music",
+          "live": "Live"
+        }
+      },
+      "up_next": {
+        "name": "Up next"
+      },
+      "audio_output": {
+        "name": "Audio output",
+        "state": {
+          "speaker": "Speaker",
+          "hdmi": "HDMI",
+          "hdmi_arc": "HDMI ARC",
+          "bluetooth": "Bluetooth",
+          "headphones": "Headphones",
+          "usb": "USB",
+          "line_out": "Line out"
+        }
       }
     },
     "notify": {

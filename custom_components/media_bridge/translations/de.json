@@ -44,6 +44,31 @@
       },
       "foreground_app": {
         "name": "App im Vordergrund"
+      },
+      "content_type": {
+        "name": "Inhaltsart",
+        "state": {
+          "movie": "Film",
+          "episode": "Folge",
+          "clip": "Clip",
+          "music": "Musik",
+          "live": "Live"
+        }
+      },
+      "up_next": {
+        "name": "Als Nächstes"
+      },
+      "audio_output": {
+        "name": "Audio-Ausgang",
+        "state": {
+          "speaker": "Lautsprecher",
+          "hdmi": "HDMI",
+          "hdmi_arc": "HDMI ARC",
+          "bluetooth": "Bluetooth",
+          "headphones": "Kopfhörer",
+          "usb": "USB",
+          "line_out": "Line-Out"
+        }
       }
     },
     "notify": {

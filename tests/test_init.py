@@ -208,3 +208,44 @@ async def test_notification_service_and_action(
     assert len(events) == 1
     assert events[0].data["action"] == "open"
     assert events[0].data["tag"] == "door"
+
+
+async def test_play_media(hass: HomeAssistant, mock_client: MagicMock) -> None:
+    """Links are opened, apps launched by package or label."""
+    await _setup(hass)
+    await hass.services.async_call(
+        "media_player",
+        "play_media",
+        {
+            "entity_id": "media_player.beamer",
+            "media_content_type": "url",
+            "media_content_id": "https://youtu.be/dQw4w9WgXcQ",
+        },
+        blocking=True,
+    )
+    mock_client.command.assert_awaited_with("open_url", url="https://youtu.be/dQw4w9WgXcQ")
+    await hass.services.async_call(
+        "media_player",
+        "play_media",
+        {"entity_id": "media_player.beamer", "media_content_type": "app", "media_content_id": "Netflix"},
+        blocking=True,
+    )
+    mock_client.command.assert_awaited_with("launch", package="com.netflix.ninja")
+
+
+async def test_new_sensors(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """Content type, up next and audio output follow the pushed state."""
+    await _setup(hass)
+    client = await hass_client_no_auth()
+    await client.post(
+        "/api/webhook/hook",
+        json={**PLAYING, "next_title": "Teil 2", "audio_output": "bluetooth", "audio_output_name": "Sony WH"},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.beamer_content_type").state == "episode"
+    assert hass.states.get("sensor.beamer_up_next").state == "Teil 2"
+    audio = hass.states.get("sensor.beamer_audio_output")
+    assert audio.state == "bluetooth"
+    assert audio.attributes["device_name"] == "Sony WH"

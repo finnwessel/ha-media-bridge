@@ -14,8 +14,24 @@ Two parts in one repository:
 | `media_player.<device>` | State (playing, paused, buffering, idle, off), title, artist, cover, app, position/duration, volume, mute. Play/pause/stop/next/previous, seek, volume. Source list = installed apps + Home: selecting one starts it. |
 | `sensor.<device>_media_end` | Timestamp when the current media ends (only while playing with known duration). |
 | `sensor.<device>_foreground_app` | App in the foreground, also without a media session (attribute `package`). |
+| `sensor.<device>_content_type` | `movie`, `episode`, `clip`, `music` or `live`, estimated from app, length and title (e.g. `S2:E4`). |
+| `sensor.<device>_up_next` | Title of the next item, for apps that publish a queue. |
+| `sensor.<device>_audio_output` | `speaker`, `hdmi`, `hdmi_arc`, `bluetooth`, `headphones`, `usb`, `line_out` (attribute `device_name`). Exact route on Android 13+, best guess before. |
 | `notify.<device>_screen` | Card in the top-right corner above whatever is playing (`notify.send_message` with title and message). |
 | `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
+
+### Playing links and apps
+
+`media_player.play_media` opens links in the app that handles them (YouTube and Netflix links go to their TV apps), or starts an app with `media_content_type: app`:
+
+```yaml
+action: media_player.play_media
+target:
+  entity_id: media_player.beamer
+data:
+  media_content_type: url
+  media_content_id: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+```
 
 ### Service `media_bridge.show_notification`
 
@@ -88,15 +104,16 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `GET /apps` | Bearer | launchable apps `[{package, label}]` |
 | `GET /artwork` | Bearer | cover of the current media (JPEG) |
 | `POST /config` `{"webhook_url"}` | Bearer | where to push |
-| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `home` |
+| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home` |
 | `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |
 
-Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
+Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
 
 ## Notes on Android quirks handled by the app
 
 - **Wrong position clock:** some apps (YouTube on Android TV) stamp positions with `uptimeMillis()` instead of `elapsedRealtime()`. Android then extrapolates playing positions ahead by all standby time since boot. The app learns the clock per app from pause states and corrects for it.
 - **Inactive paused sessions:** YouTube marks its paused session inactive when the screen goes off. Such sessions are kept until destroyed and still count when their app is in the foreground.
+- **Titles from notifications:** apps that publish a session without metadata often still show the title in their media notification; it is used as a fallback.
 - **Ignored `setStreamVolume`:** some ROMs ignore it; the app verifies and falls back to step adjustments.
 
 ## Troubleshooting

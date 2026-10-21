@@ -1,6 +1,7 @@
 package de.finnwessel.mediabridge
 
 import android.app.AppOpsManager
+import android.app.Notification
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
@@ -9,6 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.database.ContentObserver
+import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
@@ -20,8 +24,10 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
+import android.net.Uri
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import android.util.Log
 import org.json.JSONObject
 import kotlin.math.abs
@@ -103,6 +109,40 @@ class MediaBridgeService : NotificationListenerService() {
         override fun onChange(selfChange: Boolean) = schedulePublish()
     }
 
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) = schedulePublish()
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) = schedulePublish()
+    }
+
+    // ---------------------------------------------------------------- media notifications
+
+    /**
+     * Title/text of each app's media notification. Fallback for apps that
+     * publish a session without metadata but show what's playing in their
+     * notification.
+     */
+    private val mediaNotifications = HashMap<String, Pair<String?, String?>>()
+
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        sbn?.let(::rememberNotification)
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        if (sbn != null && mediaNotifications.remove(sbn.packageName) != null) schedulePublish()
+    }
+
+    private fun rememberNotification(sbn: StatusBarNotification) {
+        val n = sbn.notification ?: return
+        val extras = n.extras ?: return
+        val isMedia = extras.containsKey(Notification.EXTRA_MEDIA_SESSION) ||
+            extras.getString(Notification.EXTRA_TEMPLATE)?.contains("MediaStyle") == true ||
+            n.category == Notification.CATEGORY_TRANSPORT
+        if (!isMedia) return
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.takeIf { it.isNotBlank() }
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }
+        if (mediaNotifications.put(sbn.packageName, title to text) != (title to text)) schedulePublish()
+    }
+
     // ---------------------------------------------------------------- lifecycle
 
     override fun onListenerConnected() {
@@ -127,6 +167,8 @@ class MediaBridgeService : NotificationListenerService() {
             registerReceiver(screenReceiver, filter)
         }
         contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, volumeObserver)
+        audio.registerAudioDeviceCallback(audioDeviceCallback, handler)
+        runCatching { activeNotifications?.forEach(::rememberNotification) }
 
         val api = Api(this)
         server = HttpServer(Api.PORT, api::handle).also {
@@ -146,6 +188,7 @@ class MediaBridgeService : NotificationListenerService() {
         sessionManager?.removeOnActiveSessionsChangedListener(sessionsListener)
         runCatching { unregisterReceiver(screenReceiver) }
         contentResolver.unregisterContentObserver(volumeObserver)
+        audio.unregisterAudioDeviceCallback(audioDeviceCallback)
         (controllers.values + retained.values).forEach { it.controller.unregisterCallback(it.callback) }
         controllers.clear()
         retained.clear()
@@ -190,6 +233,7 @@ class MediaBridgeService : NotificationListenerService() {
             schedulePublish()
         }
         override fun onMetadataChanged(metadata: MediaMetadata?) = schedulePublish()
+        override fun onQueueChanged(queue: MutableList<MediaSession.QueueItem>?) = schedulePublish()
         override fun onSessionDestroyed() {
             forget(controller.sessionToken)
             schedulePublish()
@@ -261,9 +305,12 @@ class MediaBridgeService : NotificationListenerService() {
         val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val volume = (audio.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / maxVolume * 100).roundToInt() / 100.0
         val muted = audio.isStreamMute(AudioManager.STREAM_MUSIC)
+        val output = audioOutput()
         val base = Snapshot(
             state = if (screenOn) "idle" else "off",
             screenOn = screenOn,
+            audioOutput = output.first,
+            audioOutputName = output.second,
             foregroundApp = if (screenOn) foreground else null,
             foregroundLabel = if (screenOn) foreground?.let(::label) else null,
             volume = volume,
@@ -275,15 +322,19 @@ class MediaBridgeService : NotificationListenerService() {
         val meta = controller.metadata
         val duration = meta?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 }
         val art = artwork(meta)
+        val fromNotification = mediaNotifications[controller.packageName]
+        val metaTitle = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+            ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
         return base.copy(
+            nextTitle = nextTitle(controller),
             artworkId = art?.first,
             artworkUrl = art?.second,
             state = stateName(playback),
             app = controller.packageName,
             appLabel = label(controller.packageName),
-            title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
-                ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE),
-            artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+            title = metaTitle?.takeIf { it.isNotBlank() } ?: fromNotification?.first,
+            artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }
+                ?: if (metaTitle.isNullOrBlank()) fromNotification?.second else null,
             album = meta?.getString(MediaMetadata.METADATA_KEY_ALBUM),
             durationMs = duration,
             positionMs = playback?.let { currentPosition(controller, it, duration) },
@@ -493,6 +544,91 @@ class MediaBridgeService : NotificationListenerService() {
         return artworkResult
     }
 
+    // ---------------------------------------------------------------- queue
+
+    /** Title of the item after the current one, if the app publishes a queue. */
+    private fun nextTitle(controller: MediaController): String? {
+        val queue = controller.queue ?: return null
+        if (queue.isEmpty()) return null
+        val activeId = controller.playbackState?.activeQueueItemId ?: return null
+        val index = queue.indexOfFirst { it.queueId == activeId }
+        if (index < 0 || index + 1 >= queue.size) return null
+        return queue[index + 1].description?.title?.toString()?.takeIf { it.isNotBlank() }
+    }
+
+    // ---------------------------------------------------------------- audio output
+
+    /** Where media audio goes right now: (kind, device name). */
+    private fun audioOutput(): Pair<String, String?> {
+        val routed = if (Build.VERSION.SDK_INT >= 33) {
+            val media = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
+            runCatching { audio.getAudioDevicesForAttributes(media) }.getOrNull()?.firstOrNull()
+        } else {
+            null
+        }
+        // Before Android 13 there is no API for the active route: take the device
+        // media would go to by Android's usual priority.
+        val device = routed ?: audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { outputKind(it.type) != null }
+            .minByOrNull { OUTPUT_PRIORITY.indexOf(outputKind(it.type)) }
+        val kind = device?.let { outputKind(it.type) } ?: "speaker"
+        val name = device?.productName?.toString()?.takeIf { kind != "speaker" && it.isNotBlank() }
+        return kind to name
+    }
+
+    private fun outputKind(type: Int): String? = when (type) {
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST -> "bluetooth"
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_USB_HEADSET -> "headphones"
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_ACCESSORY -> "usb"
+        AudioDeviceInfo.TYPE_HDMI_ARC,
+        AudioDeviceInfo.TYPE_HDMI_EARC -> "hdmi_arc"
+        AudioDeviceInfo.TYPE_HDMI -> "hdmi"
+        AudioDeviceInfo.TYPE_LINE_ANALOG,
+        AudioDeviceInfo.TYPE_LINE_DIGITAL,
+        AudioDeviceInfo.TYPE_AUX_LINE -> "line_out"
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+        else -> null
+    }
+
+    // ---------------------------------------------------------------- links
+
+    /**
+     * Opens a link in the app that handles it. YouTube and Netflix links go to
+     * their TV apps explicitly, otherwise Android may pick a browser.
+     */
+    private fun openUrl(raw: String): Boolean {
+        var uri = Uri.parse(raw.trim())
+        val host = uri.host?.lowercase()?.removePrefix("www.")?.removePrefix("m.") ?: ""
+        if (host == "youtu.be") {
+            uri = Uri.parse("https://www.youtube.com/watch?v=${uri.lastPathSegment}")
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val target = when {
+            host == "youtu.be" || host.endsWith("youtube.com") -> YOUTUBE_TV
+            host.endsWith("netflix.com") -> NETFLIX_TV
+            else -> null
+        }
+        if (target != null && isInstalled(target)) {
+            intent.setPackage(target)
+            if (target == NETFLIX_TV) intent.putExtra("source", "30") // Netflix TV deep-link convention
+        }
+        if (intent.resolveActivity(packageManager) == null) {
+            Log.w(TAG, "no app opens $uri")
+            return false
+        }
+        startActivity(intent)
+        return true
+    }
+
+    private fun isInstalled(pkg: String) =
+        runCatching { packageManager.getApplicationInfo(pkg, 0) }.isSuccess
+
     // ---------------------------------------------------------------- apps
 
     /** Launchable apps (TV launcher first), sorted by name. */
@@ -540,6 +676,8 @@ class MediaBridgeService : NotificationListenerService() {
             }
             "launch" -> return runCatching { launch(args.optString("package")) }
                 .onFailure { Log.w(TAG, "launch failed: ${it.message}") }.getOrDefault(false)
+            "open_url" -> return runCatching { openUrl(args.optString("url")) }
+                .onFailure { Log.w(TAG, "open_url failed: ${it.message}") }.getOrDefault(false)
             "home" -> {
                 startActivity(
                     Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -606,6 +744,9 @@ class MediaBridgeService : NotificationListenerService() {
         private const val HEARTBEAT_MS = 30_000L
         private const val FOREGROUND_POLL_MS = 3_000L
         private const val MAX_RETAINED = 5
+        private const val YOUTUBE_TV = "com.google.android.youtube.tv"
+        private const val NETFLIX_TV = "com.netflix.ninja"
+        private val OUTPUT_PRIORITY = listOf("bluetooth", "headphones", "usb", "hdmi_arc", "line_out", "hdmi", "speaker")
         private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
 
         @Volatile
