@@ -23,8 +23,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.3"
@@ -40,6 +38,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          [ -f build.log ] || exit 0
           msg=$(grep -E "^e: |error:|What went wrong|^> " -A4 build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=Gradle build failed::$msg"
 
@@ -87,7 +86,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+          # Needed only for the default HACS store; installing as a custom
+          # repository works without them.
+          ignore: brands description topics
 
   release:
     name: Publish release
