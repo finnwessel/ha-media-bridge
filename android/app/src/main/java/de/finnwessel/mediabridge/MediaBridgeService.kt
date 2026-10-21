@@ -155,12 +155,13 @@ class MediaBridgeService : NotificationListenerService() {
         val activeTokens = active.map { it.sessionToken }.toSet()
         controllers.keys.filter { it !in activeTokens }.forEach { token ->
             controllers.remove(token)?.let { it.controller.unregisterCallback(it.callback) }
-            positionAnchors.remove(token)
+            tracks.remove(token)
         }
         // Keep the system's priority order.
         val ordered = LinkedHashMap<MediaSession.Token, Tracked>()
         for (controller in active) {
-            val tracked = controllers[controller.sessionToken] ?: Tracked(controller, callbackFor()).also {
+            val tracked = controllers[controller.sessionToken] ?: Tracked(controller, callbackFor(controller)).also {
+                controller.playbackState?.let { state -> observe(controller.sessionToken, state) }
                 controller.registerCallback(it.callback, handler)
                 Log.i(TAG, "tracking session ${controller.packageName}")
             }
@@ -171,8 +172,11 @@ class MediaBridgeService : NotificationListenerService() {
         schedulePublish()
     }
 
-    private fun callbackFor() = object : MediaController.Callback() {
-        override fun onPlaybackStateChanged(state: PlaybackState?) = schedulePublish()
+    private fun callbackFor(controller: MediaController) = object : MediaController.Callback() {
+        override fun onPlaybackStateChanged(state: PlaybackState?) {
+            state?.let { observe(controller.sessionToken, it) }
+            schedulePublish()
+        }
         override fun onMetadataChanged(metadata: MediaMetadata?) = schedulePublish()
         override fun onSessionDestroyed() = schedulePublish()
     }
@@ -202,7 +206,7 @@ class MediaBridgeService : NotificationListenerService() {
         lastPosition = snapshot.positionMs
         lastPositionAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "push state=${snapshot.state} app=${snapshot.app} pos=${snapshot.positionMs}")
-        Publisher.send(Prefs.webhookUrl(this), snapshot.toJson(mapOf("id" to Prefs.deviceId(this))).toString())
+        Publisher.send(Prefs.webhookUrl(this), snapshot.toJson(meta()).toString())
     }
 
     /** A jump of more than 3 s against the extrapolated position counts as a seek and is pushed at once. */
@@ -213,8 +217,9 @@ class MediaBridgeService : NotificationListenerService() {
         return abs(now - expected) > 3000
     }
 
-    fun snapshotJson(): JSONObject =
-        snapshot().toJson(mapOf("id" to Prefs.deviceId(this), "webhook_url" to Prefs.webhookUrl(this)))
+    private fun meta() = mapOf("id" to Prefs.deviceId(this), "version" to BuildConfig.VERSION_NAME)
+
+    fun snapshotJson(): JSONObject = snapshot().toJson(meta() + ("webhook_url" to Prefs.webhookUrl(this)))
 
     private fun snapshot(): Snapshot {
         val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
@@ -247,29 +252,52 @@ class MediaBridgeService : NotificationListenerService() {
         )
     }
 
-    /** When we first saw each position report, per session: our own clock as fallback anchor. */
-    private val positionAnchors = HashMap<MediaSession.Token, Pair<String, Long>>()
-
     /**
-     * Position extrapolated to now. Apps are supposed to stamp
-     * lastPositionUpdateTime with elapsedRealtime(), but some (YouTube on
-     * Android TV) use another clock or a stale value. The app's stamp is used
-     * only when it is plausible against the moment we first saw that report;
-     * otherwise that moment is the anchor. Never beyond the duration.
+     * Per-session correction for apps that keep a stale lastPositionUpdateTime
+     * while playing (YouTube on Android TV). The system extrapolates every
+     * PLAYING state from that stamp and hands it to us freshly stamped, so the
+     * error can't be seen in a single report. Paused/buffering positions are not
+     * extrapolated and therefore right: remember the last one, and on the switch
+     * to PLAYING measure how far the system's value is ahead of it. That offset
+     * is subtracted until playback stops again. Well-behaved apps get offset 0.
      */
-    private fun currentPosition(token: MediaSession.Token, state: PlaybackState, durationMs: Long?): Long? {
-        if (state.position < 0) return null
-        val now = SystemClock.elapsedRealtime()
-        val reportKey = "${state.state}|${state.position}|${state.lastPositionUpdateTime}"
-        val anchor = positionAnchors[token]?.takeIf { it.first == reportKey }?.second
-            ?: now.also { positionAnchors[token] = reportKey to it }
-        var position = state.position
-        if (state.state == PlaybackState.STATE_PLAYING) {
-            val sinceSeen = now - anchor
-            val sinceStamp = now - state.lastPositionUpdateTime
-            val elapsed = if (state.lastPositionUpdateTime > 0 && sinceStamp in 0..(sinceSeen + 2_000)) sinceStamp else sinceSeen
-            position += (elapsed * state.playbackSpeed.coerceAtLeast(0f)).toLong()
+    private class PositionTrack {
+        var lastStillPosition: Long? = null
+        var playing = false
+        var offset = 0L
+    }
+
+    private val tracks = HashMap<MediaSession.Token, PositionTrack>()
+
+    private fun observe(token: MediaSession.Token, state: PlaybackState) {
+        val track = tracks.getOrPut(token) { PositionTrack() }
+        if (stateName(state) != "playing") {
+            if (state.position >= 0) track.lastStillPosition = state.position
+            track.playing = false
+            return
         }
+        if (track.playing) return
+        track.playing = true
+        val still = track.lastStillPosition
+        val now = systemPosition(state)
+        val ahead = if (still != null && now != null) now - still else 0L
+        // Up to 3 s ahead is normal (time between the reports); only correct beyond that.
+        track.offset = if (ahead > 3_000) ahead else 0L
+        if (track.offset > 0) Log.i(TAG, "position correction: system is ${track.offset} ms ahead")
+    }
+
+    /** Position as the system reports it, extrapolated to now. */
+    private fun systemPosition(state: PlaybackState): Long? {
+        if (state.position < 0) return null
+        if (state.state != PlaybackState.STATE_PLAYING || state.lastPositionUpdateTime <= 0) return state.position
+        val elapsed = (SystemClock.elapsedRealtime() - state.lastPositionUpdateTime).coerceAtLeast(0)
+        return state.position + (elapsed * state.playbackSpeed.coerceAtLeast(0f)).toLong()
+    }
+
+    private fun currentPosition(token: MediaSession.Token, state: PlaybackState, durationMs: Long?): Long? {
+        val system = systemPosition(state) ?: return null
+        val offset = if (stateName(state) == "playing") tracks[token]?.offset ?: 0L else 0L
+        val position = (system - offset).coerceAtLeast(0)
         return if (durationMs != null) position.coerceAtMost(durationMs) else position
     }
 

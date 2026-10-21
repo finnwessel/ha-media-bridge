@@ -110,3 +110,18 @@ async def test_unload(hass: HomeAssistant, mock_client: MagicMock) -> None:
     """Entry unloads cleanly."""
     entry = await _setup(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_version_follows_app_updates(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """The device page shows the version the app reports, not the one at pairing."""
+    from homeassistant.helpers import device_registry as dr
+
+    entry = await _setup(hass)
+    client = await hass_client_no_auth()
+    await client.post("/api/webhook/hook", json={**PLAYING, "version": "9.9.9"})
+    await hass.async_block_till_done()
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "dev-1")})
+    assert device.sw_version == "9.9.9"
+    assert entry.data["version"] == "9.9.9"

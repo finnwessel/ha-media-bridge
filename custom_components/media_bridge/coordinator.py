@@ -7,11 +7,12 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import MediaBridgeAuthError, MediaBridgeClient, MediaBridgeError
-from .const import LOGGER, POLL_INTERVAL
+from .const import DOMAIN, LOGGER, POLL_INTERVAL
 
 type MediaBridgeConfigEntry = ConfigEntry[MediaBridgeCoordinator]
 
@@ -57,9 +58,19 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self.async_set_updated_data(self._stamp(data))
 
-    @staticmethod
-    def _stamp(data: dict[str, Any]) -> dict[str, Any]:
+    def _stamp(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._sync_version(data.get("version"))
         # The device extrapolates its position to the moment it sends, so the
         # time of arrival is the reference for position and end time.
         data["received_at"] = dt_util.utcnow()
         return data
+
+    def _sync_version(self, version: str | None) -> None:
+        """Keep the app version shown on the device page current after app updates."""
+        entry = self.config_entry
+        if not version or version == entry.data.get("version"):
+            return
+        self.hass.config_entries.async_update_entry(entry, data={**entry.data, "version": version})
+        registry = dr.async_get(self.hass)
+        if device := registry.async_get_device(identifiers={(DOMAIN, entry.unique_id)}):
+            registry.async_update_device(device.id, sw_version=version)
