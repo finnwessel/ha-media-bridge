@@ -1,5 +1,7 @@
 """Power, picture mode, screensaver and sleep-after-current."""
 
+import asyncio
+
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -210,9 +212,16 @@ async def test_app_update(
     state = hass.states.get("update.beamer_app")
     assert state.state == "on"
     assert state.attributes["latest_version"] == "9.0.0"
-    await hass.services.async_call("update", "install", {"entity_id": "update.beamer_app"}, blocking=True)
+    task = hass.async_create_task(
+        hass.services.async_call("update", "install", {"entity_id": "update.beamer_app"}, blocking=True)
+    )
+    for _ in range(20):
+        await asyncio.sleep(0)
     mock_client.command.assert_awaited_with("install_update", url=apk)
     assert hass.states.get("update.beamer_app").attributes["in_progress"] is True
-    await client.post("/api/webhook/hook", json={"id": "dev-1", "event": "update", "status": "failed", "detail": "x"})
-    await hass.async_block_till_done()
-    assert hass.states.get("update.beamer_app").attributes["in_progress"] is False
+    # The app comes back with the new version.
+    await _push(hass, client, {**PLAYING, "version": "9.0.0"})
+    await task
+    state = hass.states.get("update.beamer_app")
+    assert state.attributes["in_progress"] is False
+    assert state.state == "off"

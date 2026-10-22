@@ -23,6 +23,7 @@ from .entity import MediaBridgeEntity
 
 PARALLEL_UPDATES = 1
 SCAN_INTERVAL = timedelta(hours=6)
+INSTALL_TIMEOUT = 600
 RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 
@@ -50,7 +51,7 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
         """Initialize the update entity."""
         super().__init__(coordinator, "app_update")
         self._release: dict[str, Any] | None = None
-        self._attr_in_progress = False
+        self._done: asyncio.Future[str | None] | None = None
 
     @property
     def should_poll(self) -> bool:
@@ -105,6 +106,7 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
         url = self._apk_url()
         if not url:
             raise HomeAssistantError("The latest release has no APK")
+        self._done = self.hass.loop.create_future()
         try:
             await self.coordinator.client.command("install_update", url=url)
         except MediaBridgeError as err:
@@ -112,8 +114,18 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
                 f"The device refused the update ({err}). Is installing allowed? "
                 "adb shell appops set de.finnwessel.mediabridge REQUEST_INSTALL_PACKAGES allow"
             ) from err
-        self._attr_in_progress = True
-        self.async_write_ha_state()
+        # Download, (on first update) confirmation on screen, install and restart of the app.
+        try:
+            async with asyncio.timeout(INSTALL_TIMEOUT):
+                error = await self._done
+        except TimeoutError as err:
+            raise HomeAssistantError(
+                "The update did not finish in time. Was the installation confirmed on the screen?"
+            ) from err
+        finally:
+            self._done = None
+        if error:
+            raise HomeAssistantError(f"Update failed on the device: {error}")
 
     async def async_added_to_hass(self) -> None:
         """Follow progress events from the device."""
@@ -129,20 +141,21 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
         await self.async_update()
         self.async_write_ha_state()
 
+    def _finish(self, error: str | None) -> None:
+        if self._done is not None and not self._done.done():
+            self._done.set_result(error)
+
     @callback
     def _handle_progress(self, status: str | None, detail: str | None) -> None:
         LOGGER.debug("App update: %s %s", status, detail or "")
-        if status in ("installed", "failed"):
-            self._attr_in_progress = False
-            if status == "failed":
-                LOGGER.warning("App update on %s failed: %s", self.coordinator.config_entry.title, detail)
-        else:
-            self._attr_in_progress = True
-        self.async_write_ha_state()
+        if status == "failed":
+            self._finish(detail or "unknown error")
+        elif status == "installed":
+            self._finish(None)
 
     @callback
     def _handle_coordinator_update(self) -> None:
         # The app restarts with the new version: done.
-        if self._attr_in_progress and self.installed_version == self.latest_version:
-            self._attr_in_progress = False
+        if self.installed_version == self.latest_version:
+            self._finish(None)
         super()._handle_coordinator_update()
