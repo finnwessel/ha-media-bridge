@@ -94,6 +94,7 @@ class BeamerCard extends HTMLElement {
         .then((r) => r.path)
         .catch(() => null));
     }
+    img.onerror = () => img.closest(".app")?.classList.add("noimg");
     BMC_LOGOS.get(key).then((url) => {
       if (url) img.src = url;
       else img.closest(".app")?.classList.add("noimg");
