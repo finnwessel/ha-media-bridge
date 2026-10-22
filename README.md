@@ -21,6 +21,11 @@ Two parts in one repository:
 | `select.<device>_picture_mode` | JMGO picture mode (standard, soft, movie, office, dynamic, vivid), switchable. Needs `WRITE_SECURE_SETTINGS`. |
 | `binary_sensor.<device>_screensaver` | On while the screensaver runs. |
 | `switch.<device>_sleep_after_this_item` | Standby once the current item has finished (stopped, end reached, or the next title starts – that one is paused first). Fires `media_bridge_sleep_timer_finished`. |
+| `sensor.<device>_resolution`, `sensor.<device>_refresh_rate` | Output mode, e.g. `2160p` and `23.98` Hz – shows whether frame-rate matching kicks in. Attribute `hdr_formats` lists the HDR formats the output supports (the active HDR mode isn't readable by apps). |
+| `sensor.<device>_bluetooth` | Number of connected Bluetooth devices; attributes `devices` (names) and `details` (type, battery where reported). Needs `BLUETOOTH_CONNECT`. |
+| `update.<device>_app` | New app releases from GitHub; *Install* lets the device download and install the APK itself. The first time Android asks for confirmation on screen (OK with the remote); later updates install without asking. Needs `REQUEST_INSTALL_PACKAGES`. |
+| `binary_sensor.<device>_permissions` | Diagnostic problem sensor; a missing permission also raises a repair issue in Home Assistant with the ADB command that fixes it. |
+| Diagnostics | `wifi_signal` (dBm), `wifi_link_speed` (Mbit/s), `storage_free` (GB), `last_boot`. |
 | `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`, and `button` with readable names for vendor keys, e.g. `netflix`, `youtube`, `prime_video`, `input` on JMGO remotes). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
 
 ### Playing links and apps
@@ -93,13 +98,17 @@ Standby and picture mode:
 adb shell dpm set-active-admin $PKG/.AdminReceiver
 # change picture mode from Home Assistant
 adb shell pm grant $PKG android.permission.WRITE_SECURE_SETTINGS
+# connected Bluetooth devices
+adb shell pm grant $PKG android.permission.BLUETOOTH_CONNECT
+# app updates from Home Assistant (no ADB needed for updates afterwards)
+adb shell appops set $PKG REQUEST_INSTALL_PACKAGES allow
 ```
 
 Switching **on** uses Wake-on-LAN: enter the device's MAC in the integration options. The device must keep its network up in standby (JMGO: power mode "Optimized" or "Enhanced"). Without a MAC the media player becomes unavailable while the device sleeps.
 
 The address of a paired device can be changed via *Reconfigure*.
 
-Updates: `adb install -r` with the new APK; permissions stay.
+Updates: from Home Assistant via the update entity (0.7.0+), or `adb install -r` with the new APK; permissions stay.
 
 ### 2. Integration (HACS)
 
@@ -121,10 +130,10 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `GET /artwork` | Bearer | cover of the current media (JPEG) |
 | `GET /icon?package=…` | Bearer | app TV banner as PNG (`&kind=icon` for the launcher icon) |
 | `POST /config` `{"webhook_url"}` | Bearer | where to push |
-| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home`, `sleep`, `set_setting` (`key`, `value`) |
+| `POST /command` `{"command", …}` | Bearer | `install_update` (`url`), `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home`, `sleep`, `set_setting` (`key`, `value`) |
 | `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |
 
-Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `dreaming`, `picture_mode`, `eye_protector`, `memc`, `sound_mode`, `can_sleep`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
+Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `dreaming`, `picture_mode`, `eye_protector`, `memc`, `sound_mode`, `can_sleep`, `display` (`width`, `height`, `refresh_rate`, `hdr_types`), `bluetooth` (`[{name, address, type, battery}]`), `diagnostics` (`network`, `wifi_rssi`, `wifi_link_mbps`, `wifi_frequency`, `storage_free`, `storage_total`, `booted_at`, `permissions`), `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`, `update` with `status` = `downloading`/`installing`/`confirm`/`installed`/`failed` and `detail`).
 
 ## Notes on Android quirks handled by the app
 
