@@ -146,3 +146,73 @@ async def test_app_icon_view(hass: HomeAssistant, mock_client: MagicMock, hass_c
     assert mock_client.app_icon.await_count == 1
     resp = await client.get("/api/media_bridge/icon/sensor.nope?app=Netflix")
     assert resp.status == 404
+
+
+DIAG = {
+    "display": {"width": 3840, "height": 2160, "refresh_rate": 23.98, "hdr_types": ["hdr10", "hlg"]},
+    "bluetooth": [{"name": "Kopfhörer", "address": "AA", "type": "headphones", "battery": 80}],
+    "diagnostics": {
+        "network": "wifi",
+        "wifi_rssi": -58,
+        "wifi_link_mbps": 433,
+        "wifi_frequency": 5180,
+        "storage_free": 12_345_678_901,
+        "storage_total": 32_000_000_000,
+        "booted_at": 1_792_600_000_000,
+        "permissions": {"overlay": True, "accessibility": False, "device_admin": True,
+                        "secure_settings": True, "bluetooth": True, "install": True},
+    },
+}
+
+
+async def test_diagnostics_and_permissions(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth
+) -> None:
+    """Output format, Bluetooth, diagnostics and a repair issue per missing permission."""
+    from homeassistant.helpers import issue_registry as ir
+
+    entry = await _setup(hass)
+    client = await hass_client_no_auth()
+    await _push(hass, client, {**PLAYING, **DIAG})
+    assert hass.states.get("sensor.beamer_resolution").state == "2160p"
+    assert float(hass.states.get("sensor.beamer_refresh_rate").state) == 23.98
+    bt = hass.states.get("sensor.beamer_bluetooth_devices")
+    assert bt.state == "1"
+    assert bt.attributes["devices"] == ["Kopfhörer"]
+    assert hass.states.get("sensor.beamer_wi_fi_signal").state == "-58"
+    assert hass.states.get("binary_sensor.beamer_permissions").state == "on"
+    registry = ir.async_get(hass)
+    assert registry.async_get_issue(DOMAIN, f"{entry.entry_id}_accessibility")
+    assert not registry.async_get_issue(DOMAIN, f"{entry.entry_id}_overlay")
+
+    fixed = {**DIAG["diagnostics"], "permissions": {**DIAG["diagnostics"]["permissions"], "accessibility": True}}
+    await _push(hass, client, {**PLAYING, **DIAG, "diagnostics": fixed})
+    assert hass.states.get("binary_sensor.beamer_permissions").state == "off"
+    assert not registry.async_get_issue(DOMAIN, f"{entry.entry_id}_accessibility")
+
+
+async def test_app_update(
+    hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth, aioclient_mock
+) -> None:
+    """The update entity offers the latest release and lets the device install its APK."""
+    from custom_components.media_bridge.update import RELEASE_URL
+
+    apk = "https://github.com/finnwessel/ha-media-bridge/releases/download/v9.0.0/ha-media-bridge.apk"
+    aioclient_mock.get(
+        RELEASE_URL,
+        json={"tag_name": "v9.0.0", "html_url": "https://example/r", "body": "Notes",
+              "assets": [{"name": "ha-media-bridge.apk", "browser_download_url": apk}]},
+    )
+    await _setup(hass)
+    client = await hass_client_no_auth()
+    await _push(hass, client, {**PLAYING, "version": "0.7.0"})
+    await hass.async_block_till_done()
+    state = hass.states.get("update.beamer_app")
+    assert state.state == "on"
+    assert state.attributes["latest_version"] == "9.0.0"
+    await hass.services.async_call("update", "install", {"entity_id": "update.beamer_app"}, blocking=True)
+    mock_client.command.assert_awaited_with("install_update", url=apk)
+    assert hass.states.get("update.beamer_app").attributes["in_progress"] is True
+    await client.post("/api/webhook/hook", json={"id": "dev-1", "event": "update", "status": "failed", "detail": "x"})
+    await hass.async_block_till_done()
+    assert hass.states.get("update.beamer_app").attributes["in_progress"] is False

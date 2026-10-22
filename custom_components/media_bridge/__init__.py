@@ -7,11 +7,12 @@ from aiohttp import web
 from homeassistant.components import network, webhook
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN, CONF_WEBHOOK_ID, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import MediaBridgeClient
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, PERMISSION_COMMANDS
 from .coordinator import MediaBridgeConfigEntry, MediaBridgeCoordinator
 from .views import AppIconView
 
@@ -23,6 +24,7 @@ PLATFORMS = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.UPDATE,
 ]
 
 
@@ -108,3 +110,9 @@ async def _async_webhook_url(hass: HomeAssistant, device_host: str, webhook_id: 
     except NoURLAvailableError:
         LOGGER.warning("No internal URL configured; the device can't push updates and will be polled")
         return None
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> None:
+    """Drop the device's repair issues together with it."""
+    for key in PERMISSION_COMMANDS:
+        ir.async_delete_issue(hass, DOMAIN, f"{entry.entry_id}_{key}")

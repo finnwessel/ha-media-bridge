@@ -1,5 +1,6 @@
 package de.finnwessel.mediabridge
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Everything Home Assistant gets to know about the device at one moment. */
@@ -29,11 +30,14 @@ data class Snapshot(
     val memc: Int? = null,
     val soundMode: Int? = null,
     val canSleep: Boolean = false,
+    val display: JSONObject? = null,
+    val bluetooth: JSONArray? = null,
 ) {
     /** Changes worth an immediate push. Position is handled separately (seek detection + heartbeat). */
     fun dedupKey() = listOf(
         state, screenOn, app, title, artist, album, durationMs, canSeek, foregroundApp, volume, muted, artworkId,
         nextTitle, audioOutput, audioOutputName, dreaming, pictureMode, eyeProtector, memc, soundMode, canSleep,
+        DeviceInfo.displayKey(display), DeviceInfo.bluetoothKey(bluetooth),
     ).joinToString("|")
 
     fun toJson(extra: Map<String, Any?> = emptyMap()): JSONObject = JSONObject().apply {
@@ -62,6 +66,8 @@ data class Snapshot(
         put("memc", memc.orNull())
         put("sound_mode", soundMode.orNull())
         put("can_sleep", canSleep)
+        put("display", display.orNull())
+        put("bluetooth", bluetooth.orNull())
         put("sent_at", System.currentTimeMillis())
         extra.forEach { (k, v) -> put(k, v.orNull()) }
     }

@@ -77,6 +77,27 @@
           "usb": "USB",
           "line_out": "Line-Out"
         }
+      },
+      "resolution": {
+        "name": "Auflösung"
+      },
+      "refresh_rate": {
+        "name": "Bildwiederholrate"
+      },
+      "bluetooth": {
+        "name": "Bluetooth-Geräte"
+      },
+      "wifi_signal": {
+        "name": "WLAN-Signal"
+      },
+      "wifi_link_speed": {
+        "name": "WLAN-Linkrate"
+      },
+      "storage_free": {
+        "name": "Freier Speicher"
+      },
+      "last_boot": {
+        "name": "Letzter Neustart"
       }
     },
     "notify": {
@@ -113,11 +134,19 @@
     "binary_sensor": {
       "screensaver": {
         "name": "Bildschirmschoner"
+      },
+      "permissions": {
+        "name": "Berechtigungen"
       }
     },
     "switch": {
       "sleep_after_current": {
         "name": "Nach diesem Titel ausschalten"
+      }
+    },
+    "update": {
+      "app": {
+        "name": "App"
       }
     }
   },
@@ -173,6 +202,32 @@
     },
     "error": {
       "invalid_mac": "Keine gültige MAC-Adresse."
+    }
+  },
+  "issues": {
+    "missing_overlay": {
+      "title": "{name}: Berechtigung „Über anderen Apps einblenden“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für Benachrichtigungen auf dem Bildschirm und das Starten von Apps. Per ADB erteilen:\n\n`{command}`"
+    },
+    "missing_accessibility": {
+      "title": "{name}: Berechtigung „Bedienungshilfe“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für Fernbedienungstasten, die App im Vordergrund und das Beenden des Bildschirmschoners. Per ADB erteilen:\n\n`{command}`"
+    },
+    "missing_device_admin": {
+      "title": "{name}: Berechtigung „Geräteadministrator“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für das Ausschalten aus Home Assistant. Per ADB erteilen:\n\n`{command}`"
+    },
+    "missing_secure_settings": {
+      "title": "{name}: Berechtigung „Sichere Einstellungen“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für das Umschalten des Bildmodus. Per ADB erteilen:\n\n`{command}`"
+    },
+    "missing_bluetooth": {
+      "title": "{name}: Berechtigung „Bluetooth“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für die verbundenen Bluetooth-Geräte. Per ADB erteilen:\n\n`{command}`"
+    },
+    "missing_install": {
+      "title": "{name}: Berechtigung „Apps installieren“ fehlt",
+      "description": "Der Media-Bridge-App auf {name} fehlt die Berechtigung für App-Updates aus Home Assistant. Per ADB erteilen:\n\n`{command}`"
     }
   }
 }

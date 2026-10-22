@@ -13,7 +13,15 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
+from homeassistant.const import (
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfDataRate,
+    UnitOfFrequency,
+    UnitOfInformation,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import MediaBridgeConfigEntry, MediaBridgeCoordinator
@@ -82,6 +90,47 @@ def content_type(data: dict[str, Any]) -> str | None:
     return "movie" if duration >= 75 else "episode"
 
 
+def _diag(data: dict[str, Any], key: str) -> Any:
+    return (data.get("diagnostics") or {}).get(key)
+
+
+def _display(data: dict[str, Any]) -> dict[str, Any]:
+    return data.get("display") or {}
+
+
+def resolution(data: dict[str, Any]) -> str | None:
+    """Output resolution as 2160p, 1080p, ..."""
+    if data.get("state") in (None, "off"):
+        return None
+    height = _display(data).get("height")
+    return f"{height}p" if height else None
+
+
+def refresh_rate(data: dict[str, Any]) -> float | None:
+    """Refresh rate of the output; changes to 24/50 Hz with frame-rate matching."""
+    if data.get("state") in (None, "off"):
+        return None
+    return _display(data).get("refresh_rate")
+
+
+def bluetooth_count(data: dict[str, Any]) -> int | None:
+    devices = data.get("bluetooth")
+    return None if devices is None else len(devices)
+
+
+def storage_free(data: dict[str, Any]) -> float | None:
+    free = _diag(data, "storage_free")
+    return round(free / 1e9, 1) if free is not None else None
+
+
+def booted_at(data: dict[str, Any]) -> datetime | None:
+    millis = _diag(data, "booted_at")
+    if millis is None:
+        return None
+    # Rounded to the minute so clock jitter doesn't produce a new state every push.
+    return dt_util.utc_from_timestamp(round(millis / 60000) * 60)
+
+
 @dataclass(frozen=True, kw_only=True)
 class MediaBridgeSensorDescription(SensorEntityDescription):
     """Sensor description with value and attribute functions."""
@@ -122,6 +171,72 @@ SENSORS: tuple[MediaBridgeSensorDescription, ...] = (
         translation_key="foreground_app",
         value_fn=lambda data: data.get("foreground_label") or data.get("foreground_app"),
         attrs_fn=lambda data: {"package": data.get("foreground_app")},
+    ),
+    MediaBridgeSensorDescription(
+        key="resolution",
+        translation_key="resolution",
+        value_fn=resolution,
+        attrs_fn=lambda data: {
+            "width": _display(data).get("width"),
+            "height": _display(data).get("height"),
+            "hdr_formats": _display(data).get("hdr_types"),
+        },
+    ),
+    MediaBridgeSensorDescription(
+        key="refresh_rate",
+        translation_key="refresh_rate",
+        device_class=SensorDeviceClass.FREQUENCY,
+        native_unit_of_measurement=UnitOfFrequency.HERTZ,
+        suggested_display_precision=0,
+        value_fn=refresh_rate,
+    ),
+    MediaBridgeSensorDescription(
+        key="bluetooth",
+        translation_key="bluetooth",
+        value_fn=bluetooth_count,
+        attrs_fn=lambda data: {
+            "devices": [d.get("name") for d in data.get("bluetooth") or []],
+            "details": data.get("bluetooth") or [],
+        },
+    ),
+    MediaBridgeSensorDescription(
+        key="wifi_signal",
+        translation_key="wifi_signal",
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: _diag(data, "wifi_rssi"),
+        attrs_fn=lambda data: {
+            "network": _diag(data, "network"),
+            "frequency_mhz": _diag(data, "wifi_frequency"),
+        },
+    ),
+    MediaBridgeSensorDescription(
+        key="wifi_link_speed",
+        translation_key="wifi_link_speed",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: _diag(data, "wifi_link_mbps"),
+    ),
+    MediaBridgeSensorDescription(
+        key="storage_free",
+        translation_key="storage_free",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=storage_free,
+        attrs_fn=lambda data: {
+            "total_gb": round(_diag(data, "storage_total") / 1e9, 1) if _diag(data, "storage_total") else None
+        },
+    ),
+    MediaBridgeSensorDescription(
+        key="last_boot",
+        translation_key="last_boot",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=booted_at,
     ),
 )
 

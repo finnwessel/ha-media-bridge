@@ -11,8 +11,8 @@ android {
         applicationId = "de.finnwessel.mediabridge"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.6.0"
+        versionCode = 12
+        versionName = "0.7.0"
     }
 
     buildFeatures {

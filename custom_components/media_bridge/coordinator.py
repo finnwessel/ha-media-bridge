@@ -8,13 +8,22 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .api import MediaBridgeAuthError, MediaBridgeClient, MediaBridgeError
-from .const import APPS_INTERVAL, EVENT_NOTIFICATION_ACTION, LOGGER, POLL_INTERVAL, signal_key
+from .const import (
+    APPS_INTERVAL,
+    DOMAIN,
+    EVENT_NOTIFICATION_ACTION,
+    LOGGER,
+    PERMISSION_COMMANDS,
+    POLL_INTERVAL,
+    signal_key,
+    signal_update,
+)
 
 type MediaBridgeConfigEntry = ConfigEntry[MediaBridgeCoordinator]
 
@@ -97,6 +106,8 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry = self.config_entry
         if event == "key":
             async_dispatcher_send(self.hass, signal_key(entry.entry_id), data.get("key"), data.get("press"))
+        elif event == "update":
+            async_dispatcher_send(self.hass, signal_update(entry.entry_id), data.get("status"), data.get("detail"))
         elif event == "notification_action":
             registry = dr.async_get(self.hass)
             devices = dr.async_entries_for_config_entry(registry, entry.entry_id)
@@ -115,10 +126,31 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _stamp(self, data: dict[str, Any]) -> dict[str, Any]:
         self._sync_version(data.get("version"))
+        self._sync_issues((data.get("diagnostics") or {}).get("permissions"))
         # The device extrapolates its position to the moment it sends, so the
         # time of arrival is the reference for position and end time.
         data["received_at"] = dt_util.utcnow()
         return data
+
+    def _sync_issues(self, permissions: dict[str, bool] | None) -> None:
+        """A repair issue per missing permission, with the command that grants it."""
+        if not isinstance(permissions, dict):
+            return
+        entry = self.config_entry
+        for key, command in PERMISSION_COMMANDS.items():
+            issue_id = f"{entry.entry_id}_{key}"
+            if permissions.get(key) is False:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key=f"missing_{key}",
+                    translation_placeholders={"name": entry.title, "command": command},
+                )
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     def _sync_version(self, version: str | None) -> None:
         """Keep the app version shown on the device page current after app updates."""

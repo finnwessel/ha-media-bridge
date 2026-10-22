@@ -35,3 +35,26 @@ EVENT_SLEEP_TIMER_FINISHED = f"{DOMAIN}_sleep_timer_finished"
 
 # JMGO picture_mode values (Settings.Global) → option keys.
 PICTURE_MODES = {7: "standard", 11: "soft", 9: "movie", 2: "office", 0: "dynamic", 3: "vivid"}
+
+
+def signal_update(entry_id: str) -> str:
+    """Dispatcher signal for app self-update progress of one device."""
+    return f"{DOMAIN}_{entry_id}_update"
+
+
+GITHUB_REPO = "finnwessel/ha-media-bridge"
+APK_ASSET = "ha-media-bridge.apk"
+
+# Permissions the app reports, with the ADB command that grants each one.
+PKG = "de.finnwessel.mediabridge"
+PERMISSION_COMMANDS = {
+    "overlay": f"adb shell appops set {PKG} SYSTEM_ALERT_WINDOW allow",
+    "accessibility": (
+        f"adb shell settings put secure enabled_accessibility_services {PKG}/{PKG}.KeyService "
+        "&& adb shell settings put secure accessibility_enabled 1"
+    ),
+    "device_admin": f"adb shell dpm set-active-admin {PKG}/.AdminReceiver",
+    "secure_settings": f"adb shell pm grant {PKG} android.permission.WRITE_SECURE_SETTINGS",
+    "bluetooth": f"adb shell pm grant {PKG} android.permission.BLUETOOTH_CONNECT",
+    "install": f"adb shell appops set {PKG} REQUEST_INSTALL_PACKAGES allow",
+}

@@ -5,6 +5,8 @@ import android.accessibilityservice.AccessibilityService
 import android.app.Notification
 import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageEvents
+import android.bluetooth.BluetoothDevice
+import android.hardware.display.DisplayManager
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -106,7 +108,7 @@ class MediaBridgeService : NotificationListenerService() {
                 }
                 Intent.ACTION_DREAMING_STARTED -> dreaming = true
                 Intent.ACTION_DREAMING_STOPPED -> dreaming = false
-                else -> return schedulePublish() // volume change
+                else -> return schedulePublish() // volume or Bluetooth change
             }
             Log.i(TAG, "screen ${if (screenOn) "on" else "off"}")
             publish(force = true)
@@ -115,6 +117,12 @@ class MediaBridgeService : NotificationListenerService() {
 
     private val volumeObserver = object : ContentObserver(handler) {
         override fun onChange(selfChange: Boolean) = schedulePublish()
+    }
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) = schedulePublish()
     }
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
@@ -170,6 +178,9 @@ class MediaBridgeService : NotificationListenerService() {
             addAction(Intent.ACTION_DREAMING_STARTED)
             addAction(Intent.ACTION_DREAMING_STOPPED)
             addAction(VOLUME_CHANGED_ACTION)
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction(BATTERY_LEVEL_CHANGED_ACTION)
         }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -181,6 +192,7 @@ class MediaBridgeService : NotificationListenerService() {
             contentResolver.registerContentObserver(Settings.Global.getUriFor(it), false, volumeObserver)
         }
         audio.registerAudioDeviceCallback(audioDeviceCallback, handler)
+        getSystemService(DisplayManager::class.java).registerDisplayListener(displayListener, handler)
         runCatching { activeNotifications?.forEach(::rememberNotification) }
 
         val api = Api(this)
@@ -202,6 +214,7 @@ class MediaBridgeService : NotificationListenerService() {
         runCatching { unregisterReceiver(screenReceiver) }
         contentResolver.unregisterContentObserver(volumeObserver)
         audio.unregisterAudioDeviceCallback(audioDeviceCallback)
+        getSystemService(DisplayManager::class.java).unregisterDisplayListener(displayListener)
         (controllers.values + retained.values).forEach { it.controller.unregisterCallback(it.callback) }
         controllers.clear()
         retained.clear()
@@ -293,7 +306,7 @@ class MediaBridgeService : NotificationListenerService() {
         lastPosition = snapshot.positionMs
         lastPositionAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "push state=${snapshot.state} app=${snapshot.app} pos=${snapshot.positionMs}")
-        Publisher.send(Prefs.webhookUrl(this), snapshot.toJson(meta()).toString())
+        Publisher.send(Prefs.webhookUrl(this), snapshot.toJson(meta() + diagnostics()).toString())
     }
 
     /** A jump of more than 3 s against the extrapolated position counts as a seek and is pushed at once. */
@@ -312,7 +325,13 @@ class MediaBridgeService : NotificationListenerService() {
 
     private fun meta() = mapOf("id" to Prefs.deviceId(this), "version" to BuildConfig.VERSION_NAME)
 
-    fun snapshotJson(): JSONObject = snapshot().toJson(meta() + ("webhook_url" to Prefs.webhookUrl(this)))
+    fun snapshotJson(): JSONObject =
+        snapshot().toJson(meta() + diagnostics() + ("webhook_url" to Prefs.webhookUrl(this)))
+
+    private fun diagnostics(): Map<String, Any?> =
+        runCatching { mapOf<String, Any?>("diagnostics" to DeviceInfo.diagnostics(this)) }
+            .onFailure { Log.w(TAG, "diagnostics: ${it.message}") }
+            .getOrDefault(emptyMap())
 
     private fun snapshot(): Snapshot {
         val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
@@ -330,6 +349,8 @@ class MediaBridgeService : NotificationListenerService() {
             memc = Projector.read(this, Projector.MEMC),
             soundMode = Projector.read(this, Projector.SOUND_MODE),
             canSleep = canSleep(),
+            display = DeviceInfo.display(this),
+            bluetooth = DeviceInfo.bluetooth(this),
             foregroundApp = if (screenOn) foreground else null,
             foregroundLabel = if (screenOn) foreground?.let(::label) else null,
             volume = volume,
@@ -725,6 +746,7 @@ class MediaBridgeService : NotificationListenerService() {
                 return true
             }
             "sleep" -> return sleep()
+            "install_update" -> return Updater.install(this, args.optString("url"))
             "set_setting" -> {
                 val key = args.optString("key").takeIf { it in Projector.WATCHED } ?: return false
                 val value = args.optInt("value", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE } ?: return false
@@ -803,7 +825,7 @@ class MediaBridgeService : NotificationListenerService() {
 
     // ---------------------------------------------------------------- standby
 
-    private fun adminActive(): Boolean {
+    fun adminActive(): Boolean {
         val dpm = getSystemService(DevicePolicyManager::class.java)
         return dpm.isAdminActive(ComponentName(this, AdminReceiver::class.java))
     }
@@ -839,6 +861,7 @@ class MediaBridgeService : NotificationListenerService() {
         private const val NETFLIX_TV = "com.netflix.ninja"
         private val OUTPUT_PRIORITY = listOf("bluetooth", "headphones", "usb", "hdmi_arc", "line_out", "hdmi", "speaker")
         private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
+        private const val BATTERY_LEVEL_CHANGED_ACTION = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
 
         @Volatile
         var instance: MediaBridgeService? = null

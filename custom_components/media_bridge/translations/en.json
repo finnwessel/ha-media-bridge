@@ -77,6 +77,27 @@
           "usb": "USB",
           "line_out": "Line out"
         }
+      },
+      "resolution": {
+        "name": "Resolution"
+      },
+      "refresh_rate": {
+        "name": "Refresh rate"
+      },
+      "bluetooth": {
+        "name": "Bluetooth devices"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "wifi_link_speed": {
+        "name": "Wi-Fi link speed"
+      },
+      "storage_free": {
+        "name": "Free storage"
+      },
+      "last_boot": {
+        "name": "Last boot"
       }
     },
     "notify": {
@@ -113,11 +134,19 @@
     "binary_sensor": {
       "screensaver": {
         "name": "Screensaver"
+      },
+      "permissions": {
+        "name": "Permissions"
       }
     },
     "switch": {
       "sleep_after_current": {
         "name": "Sleep after this item"
+      }
+    },
+    "update": {
+      "app": {
+        "name": "App"
       }
     }
   },
@@ -173,6 +202,32 @@
     },
     "error": {
       "invalid_mac": "Not a valid MAC address."
+    }
+  },
+  "issues": {
+    "missing_overlay": {
+      "title": "{name}: permission „Display over other apps“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for on-screen notifications and starting apps. Grant it via ADB:\n\n`{command}`"
+    },
+    "missing_accessibility": {
+      "title": "{name}: permission „Accessibility service“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for remote keys, the foreground app and ending the screensaver. Grant it via ADB:\n\n`{command}`"
+    },
+    "missing_device_admin": {
+      "title": "{name}: permission „Device admin“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for switching off from Home Assistant. Grant it via ADB:\n\n`{command}`"
+    },
+    "missing_secure_settings": {
+      "title": "{name}: permission „Secure settings“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for changing the picture mode. Grant it via ADB:\n\n`{command}`"
+    },
+    "missing_bluetooth": {
+      "title": "{name}: permission „Bluetooth“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for the connected Bluetooth devices. Grant it via ADB:\n\n`{command}`"
+    },
+    "missing_install": {
+      "title": "{name}: permission „Install apps“ missing",
+      "description": "The Media Bridge app on {name} lacks the permission needed for updating the app from Home Assistant. Grant it via ADB:\n\n`{command}`"
     }
   }
 }
