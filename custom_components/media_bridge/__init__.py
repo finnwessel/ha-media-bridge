@@ -13,6 +13,7 @@ from homeassistant.helpers.network import NoURLAvailableError, get_url
 from .api import MediaBridgeClient
 from .const import DOMAIN, LOGGER
 from .coordinator import MediaBridgeConfigEntry, MediaBridgeCoordinator
+from .views import AppIconView
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -35,6 +36,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) 
     )
     coordinator = MediaBridgeCoordinator(hass, entry, client)
     entry.runtime_data = coordinator
+
+    if not hass.data.get(f"{DOMAIN}_view"):
+        hass.http.register_view(AppIconView(hass))
+        hass.data[f"{DOMAIN}_view"] = True
 
     webhook_id = entry.data.get(CONF_WEBHOOK_ID)
     if not webhook_id:

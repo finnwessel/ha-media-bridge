@@ -202,7 +202,7 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
                 if data:
                     return data, "image/jpeg"
             if app := self._logo_app:
-                data = await self.coordinator.client.app_icon(app)
+                data = await self.coordinator.async_app_icon(app)
                 if data:
                     return data, "image/png"
         except MediaBridgeError:

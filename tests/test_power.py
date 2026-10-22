@@ -116,7 +116,7 @@ async def test_app_logo_without_cover(hass: HomeAssistant, mock_client: MagicMoc
     resp = await client.get(picture)
     assert resp.status == 200
     assert resp.content_type == "image/png"
-    mock_client.app_icon.assert_awaited_with("com.google.android.youtube.tv")
+    mock_client.app_icon.assert_awaited_with("com.google.android.youtube.tv", banner=True)
 
     # With a cover, the cover wins.
     await _push(hass, client, {**PLAYING, "artwork_id": "abc"})
@@ -132,3 +132,17 @@ async def test_remote_button_names(hass: HomeAssistant, mock_client: MagicMock, 
     state = hass.states.get("event.beamer_remote")
     assert state.attributes["key"] == "button_4"
     assert state.attributes["button"] == "netflix"
+
+
+async def test_app_icon_view(hass: HomeAssistant, mock_client: MagicMock, hass_client) -> None:
+    """Dashboards get app logos by label; results are cached."""
+    await _setup(hass)
+    client = await hass_client()
+    resp = await client.get("/api/media_bridge/icon/media_player.beamer?app=Netflix")
+    assert resp.status == 200
+    assert await resp.read() == b"png-bytes"
+    mock_client.app_icon.assert_awaited_once_with("com.netflix.ninja", banner=True)
+    await client.get("/api/media_bridge/icon/media_player.beamer?app=com.netflix.ninja")
+    assert mock_client.app_icon.await_count == 1
+    resp = await client.get("/api/media_bridge/icon/sensor.nope?app=Netflix")
+    assert resp.status == 404

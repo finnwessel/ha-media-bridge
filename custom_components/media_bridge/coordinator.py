@@ -42,6 +42,7 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.webhook_url: str | None = None
         self.apps: list[dict[str, str]] = []
         self._apps_fetched: datetime | None = None
+        self._icons: dict[tuple[str, bool], bytes | None] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -66,6 +67,20 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._apps_fetched = now
         except MediaBridgeError as err:
             LOGGER.debug("Could not fetch app list: %s", err)
+
+    def package_for(self, app: str) -> str:
+        """Package for an app given by package or label."""
+        return next((a["package"] for a in self.apps if app in (a["package"], a["label"])), app)
+
+    async def async_app_icon(self, package: str, *, banner: bool = True) -> bytes | None:
+        """App logo (TV banner or launcher icon), cached; logos only change with app updates."""
+        key = (package, banner)
+        if key not in self._icons:
+            icon = await self.client.app_icon(package, banner=banner)
+            if icon is None and banner:
+                icon = await self.client.app_icon(package, banner=False)
+            self._icons[key] = icon
+        return self._icons[key]
 
     def async_push(self, data: dict[str, Any]) -> None:
         """Handle a state pushed by the device."""
