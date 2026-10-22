@@ -22,6 +22,13 @@
       },
       "reauth_confirm": {
         "description": "{name} no longer accepts the stored token. Submit to show a new pairing code on its screen."
+      },
+      "reconfigure": {
+        "description": "Change the address of the device.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
       }
     },
     "error": {
@@ -34,7 +41,8 @@
       "invalid_discovery": "The discovered device did not announce an ID.",
       "not_ipv4": "Only IPv4 addresses are supported.",
       "reauth_successful": "Paired again.",
-      "wrong_device": "A different device answered the pairing."
+      "wrong_device": "A different device answered the pairing.",
+      "reconfigure_successful": "Address updated."
     }
   },
   "entity": {
@@ -69,6 +77,9 @@
           "usb": "USB",
           "line_out": "Line out"
         }
+      },
+      "projection_distance": {
+        "name": "Projection distance"
       }
     },
     "notify": {
@@ -87,6 +98,29 @@
             }
           }
         }
+      }
+    },
+    "select": {
+      "picture_mode": {
+        "name": "Picture mode",
+        "state": {
+          "standard": "Standard",
+          "soft": "Soft",
+          "movie": "Movie",
+          "office": "Office",
+          "dynamic": "Dynamic",
+          "vivid": "Vivid"
+        }
+      }
+    },
+    "binary_sensor": {
+      "screensaver": {
+        "name": "Screensaver"
+      }
+    },
+    "switch": {
+      "sleep_after_current": {
+        "name": "Sleep after this item"
       }
     }
   },
@@ -128,6 +162,20 @@
           "description": "Pause what is playing when the card appears."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Media Bridge options",
+        "description": "Needs a power mode that keeps the network connected in standby.",
+        "data": {
+          "mac": "MAC address (for switching on via Wake-on-LAN)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Not a valid MAC address."
     }
   }
 }

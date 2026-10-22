@@ -14,7 +14,15 @@ from .api import MediaBridgeClient
 from .const import DOMAIN, LOGGER
 from .coordinator import MediaBridgeConfigEntry, MediaBridgeCoordinator
 
-PLATFORMS = [Platform.EVENT, Platform.MEDIA_PLAYER, Platform.NOTIFY, Platform.SENSOR]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.EVENT,
+    Platform.MEDIA_PLAYER,
+    Platform.NOTIFY,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> bool:
@@ -65,7 +73,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) 
     await coordinator.async_refresh()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> None:
+    """MAC changed: reload so the power features follow."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> bool:

@@ -22,7 +22,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import MediaBridgeError
-from .const import HOME_SOURCE, LOGGER
+from .const import CONF_MAC, HOME_SOURCE, LOGGER
+from .wol import async_wake
 from .coordinator import MediaBridgeConfigEntry
 from .entity import MediaBridgeEntity
 
@@ -96,9 +97,22 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
         return self.coordinator.data or {}
 
     @property
+    def _mac(self) -> str | None:
+        return self.coordinator.config_entry.options.get(CONF_MAC) or None
+
+    @property
+    def available(self) -> bool:
+        """With Wake-on-LAN configured, an unreachable device is off, not unavailable."""
+        return super().available or self._mac is not None
+
+    @property
     def supported_features(self) -> MediaPlayerEntityFeature:
         """Seeking only where the playing app supports it; sources once the app list is known."""
         features = BASE_FEATURES
+        if self._mac:
+            features |= MediaPlayerEntityFeature.TURN_ON
+        if self._data.get("can_sleep") or self._mac:
+            features |= MediaPlayerEntityFeature.TURN_OFF
         if self._data.get("can_seek"):
             features |= MediaPlayerEntityFeature.SEEK
         if self.coordinator.apps:
@@ -223,8 +237,20 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState | None:
-        """Playback state."""
+        """Playback state; off while the device is asleep and unreachable."""
+        if not self.coordinator.last_update_success:
+            return MediaPlayerState.OFF
         return STATES.get(self._data.get("state"))
+
+    async def async_turn_on(self) -> None:
+        """Wake the device with a magic packet."""
+        if not self._mac:
+            raise ServiceValidationError("No MAC address configured (integration options)")
+        await async_wake(self.hass, self._mac, self.coordinator.config_entry.data.get("host"))
+
+    async def async_turn_off(self) -> None:
+        """Standby."""
+        await self._command("sleep")
 
     @property
     def media_title(self) -> str | None:

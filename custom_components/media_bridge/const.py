@@ -28,3 +28,10 @@ HOME_SOURCE = "Home"
 def signal_key(entry_id: str) -> str:
     """Dispatcher signal for key presses of one device."""
     return f"{DOMAIN}_{entry_id}_key"
+
+CONF_MAC = "mac"
+
+EVENT_SLEEP_TIMER_FINISHED = f"{DOMAIN}_sleep_timer_finished"
+
+# JMGO picture_mode values (Settings.Global) → option keys.
+PICTURE_MODES = {7: "standard", 11: "soft", 9: "movie", 2: "office", 0: "dynamic", 3: "vivid"}

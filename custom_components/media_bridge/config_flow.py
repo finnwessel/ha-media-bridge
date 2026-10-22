@@ -7,13 +7,20 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT, CONF_TOKEN
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import MediaBridgeAuthError, MediaBridgeClient, MediaBridgeError
-from .const import CONF_CODE, DEFAULT_PORT, DOMAIN
+from .const import CONF_CODE, CONF_MAC, DEFAULT_PORT, DOMAIN
+from .wol import normalize_mac
 
 
 class MediaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -26,6 +33,39 @@ class MediaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
         self._host: str | None = None
         self._port: int = DEFAULT_PORT
         self._name: str | None = None
+
+    @staticmethod
+    def async_get_options_flow(config_entry: ConfigEntry) -> MediaBridgeOptionsFlow:
+        """Options: MAC address for switching on via Wake-on-LAN."""
+        return MediaBridgeOptionsFlow()
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Change the address of a paired device."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._host = user_input[CONF_HOST].strip()
+            self._port = user_input[CONF_PORT]
+            try:
+                info = await self._client().info()
+            except MediaBridgeError:
+                errors["base"] = "cannot_connect"
+            else:
+                await self.async_set_unique_id(info["id"])
+                self._abort_if_unique_id_mismatch(reason="wrong_device")
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_HOST: self._host, CONF_PORT: self._port}
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=entry.data[CONF_HOST]): str,
+                    vol.Required(CONF_PORT, default=entry.data[CONF_PORT]): int,
+                }
+            ),
+            errors=errors,
+        )
 
     def _client(self) -> MediaBridgeClient:
         assert self._host is not None
@@ -154,4 +194,25 @@ class MediaBridgeConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             description_placeholders={CONF_NAME: self._name or ""},
+        )
+
+
+class MediaBridgeOptionsFlow(OptionsFlow):
+    """MAC address used to switch the device on."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Edit the options."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            raw = (user_input.get(CONF_MAC) or "").strip()
+            mac = normalize_mac(raw) if raw else ""
+            if mac is None:
+                errors[CONF_MAC] = "invalid_mac"
+            else:
+                return self.async_create_entry(data={CONF_MAC: mac})
+        current = self.config_entry.options.get(CONF_MAC, "")
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({vol.Optional(CONF_MAC, default=current): str}),
+            errors=errors,
         )

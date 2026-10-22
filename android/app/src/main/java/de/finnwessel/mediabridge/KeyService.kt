@@ -17,6 +17,12 @@ class KeyService : AccessibilityService() {
 
     override fun onServiceConnected() {
         Log.i(TAG, "key service connected")
+        instance = this
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -55,6 +61,10 @@ class KeyService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     companion object {
+        @Volatile
+        var instance: KeyService? = null
+            private set
+
         private const val LONG_PRESS_MS = 600L
 
         /** Navigation would flood Home Assistant without being useful as a trigger. */

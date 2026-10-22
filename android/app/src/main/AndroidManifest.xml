@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Notifications on screen; granted via `appops set … SYSTEM_ALERT_WINDOW allow`. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Picture mode etc.; granted via `pm grant … WRITE_SECURE_SETTINGS`. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     <!-- Foreground app; granted via `appops set … GET_USAGE_STATS allow`. -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -53,6 +57,19 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/key_service" />
         </service>
+
+        <receiver
+            android:name=".AdminReceiver"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".ConfigReceiver"

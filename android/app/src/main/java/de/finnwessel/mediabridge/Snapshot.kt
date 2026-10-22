@@ -23,11 +23,18 @@ data class Snapshot(
     val nextTitle: String? = null,
     val audioOutput: String? = null,
     val audioOutputName: String? = null,
+    val dreaming: Boolean = false,
+    val pictureMode: Int? = null,
+    val eyeProtector: Int? = null,
+    val memc: Int? = null,
+    val soundMode: Int? = null,
+    val distanceMm: Int? = null,
+    val canSleep: Boolean = false,
 ) {
     /** Changes worth an immediate push. Position is handled separately (seek detection + heartbeat). */
     fun dedupKey() = listOf(
         state, screenOn, app, title, artist, album, durationMs, canSeek, foregroundApp, volume, muted, artworkId,
-        nextTitle, audioOutput, audioOutputName,
+        nextTitle, audioOutput, audioOutputName, dreaming, pictureMode, eyeProtector, memc, soundMode, canSleep,
     ).joinToString("|")
 
     fun toJson(extra: Map<String, Any?> = emptyMap()): JSONObject = JSONObject().apply {
@@ -50,6 +57,13 @@ data class Snapshot(
         put("next_title", nextTitle.orNull())
         put("audio_output", audioOutput.orNull())
         put("audio_output_name", audioOutputName.orNull())
+        put("dreaming", dreaming)
+        put("picture_mode", pictureMode.orNull())
+        put("eye_protector", eyeProtector.orNull())
+        put("memc", memc.orNull())
+        put("sound_mode", soundMode.orNull())
+        put("distance_mm", distanceMm.orNull())
+        put("can_sleep", canSleep)
         put("sent_at", System.currentTimeMillis())
         extra.forEach { (k, v) -> put(k, v.orNull()) }
     }

@@ -1,7 +1,9 @@
 package de.finnwessel.mediabridge
 
 import android.app.AppOpsManager
+import android.accessibilityservice.AccessibilityService
 import android.app.Notification
+import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
@@ -61,6 +63,7 @@ class MediaBridgeService : NotificationListenerService() {
     private var discovery: Discovery? = null
 
     private var screenOn = true
+    private var dreaming = false
     private var foreground: String? = null
     private var lastUsageQuery = 0L
 
@@ -97,7 +100,12 @@ class MediaBridgeService : NotificationListenerService() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_ON -> screenOn = true
-                Intent.ACTION_SCREEN_OFF -> screenOn = false
+                Intent.ACTION_SCREEN_OFF -> {
+                    screenOn = false
+                    dreaming = false
+                }
+                Intent.ACTION_DREAMING_STARTED -> dreaming = true
+                Intent.ACTION_DREAMING_STOPPED -> dreaming = false
                 else -> return schedulePublish() // volume change
             }
             Log.i(TAG, "screen ${if (screenOn) "on" else "off"}")
@@ -159,6 +167,8 @@ class MediaBridgeService : NotificationListenerService() {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
             addAction(VOLUME_CHANGED_ACTION)
         }
         if (Build.VERSION.SDK_INT >= 33) {
@@ -167,6 +177,9 @@ class MediaBridgeService : NotificationListenerService() {
             registerReceiver(screenReceiver, filter)
         }
         contentResolver.registerContentObserver(Settings.System.CONTENT_URI, true, volumeObserver)
+        Projector.WATCHED.forEach {
+            contentResolver.registerContentObserver(Settings.Global.getUriFor(it), false, volumeObserver)
+        }
         audio.registerAudioDeviceCallback(audioDeviceCallback, handler)
         runCatching { activeNotifications?.forEach(::rememberNotification) }
 
@@ -311,6 +324,13 @@ class MediaBridgeService : NotificationListenerService() {
             screenOn = screenOn,
             audioOutput = output.first,
             audioOutputName = output.second,
+            dreaming = screenOn && dreaming,
+            pictureMode = Projector.read(this, Projector.PICTURE_MODE),
+            eyeProtector = Projector.read(this, Projector.EYE_PROTECTOR),
+            memc = Projector.read(this, Projector.MEMC),
+            soundMode = Projector.read(this, Projector.SOUND_MODE),
+            distanceMm = Projector.distanceMm(),
+            canSleep = canSleep(),
             foregroundApp = if (screenOn) foreground else null,
             foregroundLabel = if (screenOn) foreground?.let(::label) else null,
             volume = volume,
@@ -678,6 +698,12 @@ class MediaBridgeService : NotificationListenerService() {
                 .onFailure { Log.w(TAG, "launch failed: ${it.message}") }.getOrDefault(false)
             "open_url" -> return runCatching { openUrl(args.optString("url")) }
                 .onFailure { Log.w(TAG, "open_url failed: ${it.message}") }.getOrDefault(false)
+            "sleep" -> return sleep()
+            "set_setting" -> {
+                val key = args.optString("key").takeIf { it in Projector.WATCHED } ?: return false
+                val value = args.optInt("value", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE } ?: return false
+                return Projector.write(this, key, value)
+            }
             "home" -> {
                 startActivity(
                     Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -731,6 +757,29 @@ class MediaBridgeService : NotificationListenerService() {
             steps++
         }
         Log.i(TAG, "volume target=$target reached=$current (max $max, $steps steps)")
+    }
+
+    // ---------------------------------------------------------------- standby
+
+    private fun adminActive(): Boolean {
+        val dpm = getSystemService(DevicePolicyManager::class.java)
+        return dpm.isAdminActive(ComponentName(this, AdminReceiver::class.java))
+    }
+
+    private fun canSleep() = adminActive() || KeyService.instance != null
+
+    /**
+     * Screen off = standby. Device admin lockNow() is the reliable way; the
+     * accessibility "lock screen" action is the fallback (Android 9+).
+     */
+    private fun sleep(): Boolean {
+        Log.i(TAG, "going to standby")
+        if (adminActive()) {
+            getSystemService(DevicePolicyManager::class.java).lockNow()
+            return true
+        }
+        val keys = KeyService.instance ?: return false
+        return keys.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
     }
 
     // ---------------------------------------------------------------- misc

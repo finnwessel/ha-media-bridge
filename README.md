@@ -18,6 +18,10 @@ Two parts in one repository:
 | `sensor.<device>_up_next` | Title of the next item, for apps that publish a queue. |
 | `sensor.<device>_audio_output` | `speaker`, `hdmi`, `hdmi_arc`, `bluetooth`, `headphones`, `usb`, `line_out` (attribute `device_name`). Exact route on Android 13+, best guess before. |
 | `notify.<device>_screen` | Card in the top-right corner above whatever is playing (`notify.send_message` with title and message). |
+| `select.<device>_picture_mode` | JMGO picture mode (standard, soft, movie, office, dynamic, vivid), switchable. Needs `WRITE_SECURE_SETTINGS`. |
+| `binary_sensor.<device>_screensaver` | On while the screensaver runs. |
+| `sensor.<device>_projection_distance` | Distance measured by the JMGO autofocus sensor (diagnostic, if readable). |
+| `switch.<device>_sleep_after_this_item` | Standby once the current item has finished (stopped, end reached, or the next title starts – that one is paused first). Fires `media_bridge_sleep_timer_finished`. |
 | `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
 
 ### Playing links and apps
@@ -83,6 +87,19 @@ adb shell settings put secure accessibility_enabled 1
 
 "Display over other apps" is also what allows starting apps from the source list.
 
+Standby and picture mode:
+
+```sh
+# switch off from Home Assistant (screen off = standby)
+adb shell dpm set-active-admin $PKG/.AdminReceiver
+# change picture mode from Home Assistant
+adb shell pm grant $PKG android.permission.WRITE_SECURE_SETTINGS
+```
+
+Switching **on** uses Wake-on-LAN: enter the device's MAC in the integration options. The device must keep its network up in standby (JMGO: power mode "Optimized" or "Enhanced"). Without a MAC the media player becomes unavailable while the device sleeps.
+
+The address of a paired device can be changed via *Reconfigure*.
+
 Updates: `adb install -r` with the new APK; permissions stay.
 
 ### 2. Integration (HACS)
@@ -104,10 +121,10 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `GET /apps` | Bearer | launchable apps `[{package, label}]` |
 | `GET /artwork` | Bearer | cover of the current media (JPEG) |
 | `POST /config` `{"webhook_url"}` | Bearer | where to push |
-| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home` |
+| `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home`, `sleep`, `set_setting` (`key`, `value`) |
 | `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |
 
-Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
+Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `dreaming`, `picture_mode`, `eye_protector`, `memc`, `sound_mode`, `distance_mm`, `can_sleep`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
 
 ## Notes on Android quirks handled by the app
 

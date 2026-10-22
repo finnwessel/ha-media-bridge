@@ -22,6 +22,13 @@
       },
       "reauth_confirm": {
         "description": "{name} akzeptiert das gespeicherte Token nicht mehr. Absenden, um einen neuen Kopplungscode anzuzeigen."
+      },
+      "reconfigure": {
+        "description": "Adresse des Geräts ändern.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
       }
     },
     "error": {
@@ -34,7 +41,8 @@
       "invalid_discovery": "Das gefundene Gerät hat keine ID gemeldet.",
       "not_ipv4": "Nur IPv4-Adressen werden unterstützt.",
       "reauth_successful": "Erneut gekoppelt.",
-      "wrong_device": "Ein anderes Gerät hat auf die Kopplung geantwortet."
+      "wrong_device": "Ein anderes Gerät hat auf die Kopplung geantwortet.",
+      "reconfigure_successful": "Adresse aktualisiert."
     }
   },
   "entity": {
@@ -69,6 +77,9 @@
           "usb": "USB",
           "line_out": "Line-Out"
         }
+      },
+      "projection_distance": {
+        "name": "Projektionsabstand"
       }
     },
     "notify": {
@@ -87,6 +98,29 @@
             }
           }
         }
+      }
+    },
+    "select": {
+      "picture_mode": {
+        "name": "Bildmodus",
+        "state": {
+          "standard": "Standard",
+          "soft": "Weich",
+          "movie": "Film",
+          "office": "Büro",
+          "dynamic": "Dynamisch",
+          "vivid": "Lebhaft"
+        }
+      }
+    },
+    "binary_sensor": {
+      "screensaver": {
+        "name": "Bildschirmschoner"
+      }
+    },
+    "switch": {
+      "sleep_after_current": {
+        "name": "Nach diesem Titel ausschalten"
       }
     }
   },
@@ -128,6 +162,20 @@
           "description": "Pausiert die Wiedergabe, wenn die Karte erscheint."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Media-Bridge-Optionen",
+        "description": "Erfordert einen Energiemodus, der das Netzwerk im Standby verbunden hält.",
+        "data": {
+          "mac": "MAC-Adresse (zum Einschalten per Wake-on-LAN)"
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Keine gültige MAC-Adresse."
     }
   }
 }
