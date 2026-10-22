@@ -13,7 +13,6 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -117,15 +116,6 @@ SENSORS: tuple[MediaBridgeSensorDescription, ...] = (
         options=AUDIO_OUTPUTS,
         value_fn=lambda data: data.get("audio_output") if data.get("audio_output") in AUDIO_OUTPUTS else None,
         attrs_fn=lambda data: {"device_name": data.get("audio_output_name")},
-    ),
-    MediaBridgeSensorDescription(
-        key="projection_distance",
-        translation_key="projection_distance",
-        device_class=SensorDeviceClass.DISTANCE,
-        native_unit_of_measurement=UnitOfLength.METERS,
-        suggested_display_precision=2,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda data: round(data["distance_mm"] / 1000, 3) if data.get("distance_mm") else None,
     ),
     MediaBridgeSensorDescription(
         key="foreground_app",

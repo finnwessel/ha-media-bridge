@@ -77,9 +77,6 @@
           "usb": "USB",
           "line_out": "Line out"
         }
-      },
-      "projection_distance": {
-        "name": "Projection distance"
       }
     },
     "notify": {

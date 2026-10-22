@@ -68,10 +68,9 @@ async def test_picture_mode_and_screensaver(
     """Picture mode select and screensaver follow the pushed state."""
     await _setup(hass)
     client = await hass_client_no_auth()
-    await _push(hass, client, {**PLAYING, "picture_mode": 7, "dreaming": True, "distance_mm": 2807})
+    await _push(hass, client, {**PLAYING, "picture_mode": 7, "dreaming": True})
     assert hass.states.get("select.beamer_picture_mode").state == "standard"
     assert hass.states.get("binary_sensor.beamer_screensaver").state == "on"
-    assert float(hass.states.get("sensor.beamer_projection_distance").state) == 2.807
     await hass.services.async_call(
         "select", "select_option", {"entity_id": "select.beamer_picture_mode", "option": "movie"}, blocking=True
     )

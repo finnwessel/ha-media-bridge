@@ -20,7 +20,6 @@ Two parts in one repository:
 | `notify.<device>_screen` | Card in the top-right corner above whatever is playing (`notify.send_message` with title and message). |
 | `select.<device>_picture_mode` | JMGO picture mode (standard, soft, movie, office, dynamic, vivid), switchable. Needs `WRITE_SECURE_SETTINGS`. |
 | `binary_sensor.<device>_screensaver` | On while the screensaver runs. |
-| `sensor.<device>_projection_distance` | Distance measured by the JMGO autofocus sensor (diagnostic, if readable). |
 | `switch.<device>_sleep_after_this_item` | Standby once the current item has finished (stopped, end reached, or the next title starts – that one is paused first). Fires `media_bridge_sleep_timer_finished`. |
 | `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
 
@@ -124,7 +123,7 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home`, `sleep`, `set_setting` (`key`, `value`) |
 | `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |
 
-Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `dreaming`, `picture_mode`, `eye_protector`, `memc`, `sound_mode`, `distance_mm`, `can_sleep`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
+Push payload (POST to the webhook) and `/state` share the same JSON: `id`, `version`, `state`, `screen_on`, `app`, `app_label`, `title`, `artist`, `album`, `duration_ms`, `position_ms`, `can_seek`, `foreground_app`, `foreground_label`, `volume`, `muted`, `artwork_id`, `artwork_url`, `next_title`, `audio_output`, `audio_output_name`, `dreaming`, `picture_mode`, `eye_protector`, `memc`, `sound_mode`, `can_sleep`, `sent_at`. One-off events use the same webhook with an `event` field (`key` with `key`/`press`, `notification_action` with `action`/`tag`).
 
 ## Notes on Android quirks handled by the app
 

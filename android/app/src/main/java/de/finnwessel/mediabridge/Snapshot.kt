@@ -28,7 +28,6 @@ data class Snapshot(
     val eyeProtector: Int? = null,
     val memc: Int? = null,
     val soundMode: Int? = null,
-    val distanceMm: Int? = null,
     val canSleep: Boolean = false,
 ) {
     /** Changes worth an immediate push. Position is handled separately (seek detection + heartbeat). */
@@ -62,7 +61,6 @@ data class Snapshot(
         put("eye_protector", eyeProtector.orNull())
         put("memc", memc.orNull())
         put("sound_mode", soundMode.orNull())
-        put("distance_mm", distanceMm.orNull())
         put("can_sleep", canSleep)
         put("sent_at", System.currentTimeMillis())
         extra.forEach { (k, v) -> put(k, v.orNull()) }

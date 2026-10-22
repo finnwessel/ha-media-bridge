@@ -3,7 +3,6 @@ package de.finnwessel.mediabridge
 import android.content.Context
 import android.provider.Settings
 import android.util.Log
-import java.util.concurrent.TimeUnit
 
 /**
  * Vendor settings of JMGO projectors, kept in the regular settings tables.
@@ -26,19 +25,4 @@ object Projector {
         Settings.Global.putInt(context.contentResolver, key, value)
     }.onFailure { Log.w(TAG, "can't write $key (grant WRITE_SECURE_SETTINGS): ${it.message}") }
         .getOrDefault(false)
-
-    private var distanceCache: Pair<Long, Int?>? = null
-
-    /** Last distance measured by the time-of-flight sensor (autofocus), in mm; cached for a minute. */
-    fun distanceMm(): Int? {
-        val now = System.currentTimeMillis()
-        distanceCache?.let { (at, value) -> if (now - at < 60_000) return value }
-        val value = runCatching {
-            val process = ProcessBuilder("getprop", "persist.vendor.jmgo.toflastdistance").start()
-            process.waitFor(2, TimeUnit.SECONDS)
-            process.inputStream.bufferedReader().readText().trim().toIntOrNull()?.takeIf { it > 0 }
-        }.getOrNull()
-        distanceCache = now to value
-        return value
-    }
 }

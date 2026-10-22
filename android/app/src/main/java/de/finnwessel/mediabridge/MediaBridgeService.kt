@@ -329,7 +329,6 @@ class MediaBridgeService : NotificationListenerService() {
             eyeProtector = Projector.read(this, Projector.EYE_PROTECTOR),
             memc = Projector.read(this, Projector.MEMC),
             soundMode = Projector.read(this, Projector.SOUND_MODE),
-            distanceMm = Projector.distanceMm(),
             canSleep = canSleep(),
             foregroundApp = if (screenOn) foreground else null,
             foregroundLabel = if (screenOn) foreground?.let(::label) else null,
