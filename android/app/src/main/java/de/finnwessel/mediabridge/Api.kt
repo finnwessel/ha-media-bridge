@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
  *   GET  /state         – current snapshot                     (token)
  *   GET  /apps          – launchable apps                      (token)
  *   GET  /artwork       – cover of the current media as JPEG   (token)
+ *   GET  /icon?package= – app banner (TV logo) or, with
+ *                         &kind=icon, launcher icon as PNG     (token)
  *   POST /config        – {"webhook_url"}                      (token)
  *   POST /command       – {"command", ...}                     (token)
  *   POST /notify        – {"title", "message", "duration_ms",
@@ -39,6 +41,7 @@ class Api(private val service: MediaBridgeService) {
             "GET" to "/state" -> Response.ok(onMain { service.snapshotJson() })
             "GET" to "/apps" -> apps()
             "GET" to "/artwork" -> artwork()
+            "GET" to "/icon" -> icon(req)
             "POST" to "/config" -> config(req)
             "POST" to "/command" -> command(req)
             "POST" to "/notify" -> notify(req)
@@ -80,6 +83,13 @@ class Api(private val service: MediaBridgeService) {
     private fun artwork(): Response {
         val bytes = service.artworkBytes ?: return Response.error(404, "no artwork")
         return Response(200, bytes, "image/jpeg")
+    }
+
+    private fun icon(req: Request): Response {
+        val pkg = req.query["package"]?.takeIf { it.isNotBlank() } ?: return Response.error(400, "package missing")
+        val bytes = AppIcons.png(service, pkg, banner = req.query["kind"] != "icon")
+            ?: return Response.error(404, "no icon")
+        return Response(200, bytes, "image/png")
     }
 
     private fun config(req: Request): Response {

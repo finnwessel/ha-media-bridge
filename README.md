@@ -11,7 +11,7 @@ Two parts in one repository:
 
 | Entity | |
 |---|---|
-| `media_player.<device>` | State (playing, paused, buffering, idle, off), title, artist, cover, app, position/duration, volume, mute. Play/pause/stop/next/previous, seek, volume. Source list = installed apps + Home: selecting one starts it. |
+| `media_player.<device>` | State (playing, paused, buffering, idle, off), title, artist, cover (the app's TV logo when there is no cover), app, position/duration, volume, mute. Play/pause/stop/next/previous, seek, volume. Source list = installed apps + Home: selecting one starts it. |
 | `sensor.<device>_media_end` | Timestamp when the current media ends (only while playing with known duration). |
 | `sensor.<device>_foreground_app` | App in the foreground, also without a media session (attribute `package`). |
 | `sensor.<device>_content_type` | `movie`, `episode`, `clip`, `music` or `live`, estimated from app, length and title (e.g. `S2:E4`). |
@@ -21,7 +21,7 @@ Two parts in one repository:
 | `select.<device>_picture_mode` | JMGO picture mode (standard, soft, movie, office, dynamic, vivid), switchable. Needs `WRITE_SECURE_SETTINGS`. |
 | `binary_sensor.<device>_screensaver` | On while the screensaver runs. |
 | `switch.<device>_sleep_after_this_item` | Standby once the current item has finished (stopped, end reached, or the next title starts – that one is paused first). Fires `media_bridge_sleep_timer_finished`. |
-| `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
+| `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`, and `button` with readable names for vendor keys, e.g. `netflix`, `youtube`, `prime_video`, `input` on JMGO remotes). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
 
 ### Playing links and apps
 
@@ -119,6 +119,7 @@ During setup a 6-digit code appears on the device screen; enter it in Home Assis
 | `GET /state` | Bearer | current snapshot |
 | `GET /apps` | Bearer | launchable apps `[{package, label}]` |
 | `GET /artwork` | Bearer | cover of the current media (JPEG) |
+| `GET /icon?package=…` | Bearer | app TV banner as PNG (`&kind=icon` for the launcher icon) |
 | `POST /config` `{"webhook_url"}` | Bearer | where to push |
 | `POST /command` `{"command", …}` | Bearer | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek` (`position_ms`), `volume_set` (`level` 0–1), `volume_up`, `volume_down`, `mute` (`muted`), `launch` (`package`), `open_url` (`url`), `home`, `sleep`, `set_setting` (`key`, `value`) |
 | `POST /notify` `{"title", "message", "duration_ms", "image", "actions", "tag", "pause"}` | Bearer | on-screen card; `image` base64, `actions` `[{id, title}]` |

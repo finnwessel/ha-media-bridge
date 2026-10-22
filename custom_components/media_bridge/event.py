@@ -13,6 +13,14 @@ from .entity import MediaBridgeEntity
 
 PARALLEL_UPDATES = 0
 
+# Vendor keys without a meaningful Android name (JMGO remotes).
+KEY_NAMES = {
+    "button_3": "youtube",
+    "button_4": "netflix",
+    "tv_input": "input",
+    "tv_input_component_1": "prime_video",
+}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -52,5 +60,5 @@ class MediaBridgeRemoteEvent(MediaBridgeEntity, EventEntity):
     def _handle_key(self, key: str | None, press: str | None) -> None:
         if not key or press not in self._attr_event_types:
             return
-        self._trigger_event(press, {"key": key})
+        self._trigger_event(press, {"key": key, "button": KEY_NAMES.get(key, key)})
         self.async_write_ha_state()

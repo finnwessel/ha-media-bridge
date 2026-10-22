@@ -9,6 +9,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.net.URLDecoder
 import java.util.concurrent.Executors
 
 class Request(
@@ -16,6 +17,7 @@ class Request(
     val path: String,
     val headers: Map<String, String>,
     val body: String,
+    val query: Map<String, String> = emptyMap(),
 ) {
     fun json(): JSONObject = if (body.isBlank()) JSONObject() else JSONObject(body)
 }
@@ -109,7 +111,10 @@ class HttpServer(private val port: Int, private val handle: (Request) -> Respons
             if (n < 0) break
             read += n
         }
-        return Request(parts[0].uppercase(), parts[1].substringBefore('?'), headers, String(body, 0, read))
+        val query = parts[1].substringAfter('?', "").split('&').filter { '=' in it }.associate {
+            URLDecoder.decode(it.substringBefore('='), "UTF-8") to URLDecoder.decode(it.substringAfter('='), "UTF-8")
+        }
+        return Request(parts[0].uppercase(), parts[1].substringBefore('?'), headers, String(body, 0, read), query)
     }
 
     private fun readLine(input: InputStream): String? {

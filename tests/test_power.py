@@ -101,3 +101,34 @@ async def test_sleep_after_current(
     assert calls == ["pause", "sleep"]
     assert hass.states.get("switch.beamer_sleep_after_this_item").state == "off"
     assert events[0].data["reason"] == "next_item"
+
+
+async def test_app_logo_without_cover(hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth) -> None:
+    """Without a cover the playing app's TV banner is shown; the launcher gets no logo."""
+    entity = "media_player.beamer"
+    await _setup(hass)
+    # Idle on the launcher: no picture.
+    assert "entity_picture" not in hass.states.get(entity).attributes
+
+    client = await hass_client_no_auth()
+    await _push(hass, client, {**PLAYING, "artwork_id": None})
+    picture = hass.states.get(entity).attributes["entity_picture"]
+    resp = await client.get(picture)
+    assert resp.status == 200
+    assert resp.content_type == "image/png"
+    mock_client.app_icon.assert_awaited_with("com.google.android.youtube.tv")
+
+    # With a cover, the cover wins.
+    await _push(hass, client, {**PLAYING, "artwork_id": "abc"})
+    resp = await client.get(hass.states.get(entity).attributes["entity_picture"])
+    assert resp.content_type == "image/jpeg"
+
+
+async def test_remote_button_names(hass: HomeAssistant, mock_client: MagicMock, hass_client_no_auth) -> None:
+    """Vendor keys get readable names."""
+    await _setup(hass)
+    client = await hass_client_no_auth()
+    await _push(hass, client, {"id": "dev-1", "event": "key", "key": "button_4", "press": "short_press"})
+    state = hass.states.get("event.beamer_remote")
+    assert state.attributes["key"] == "button_4"
+    assert state.attributes["button"] == "netflix"

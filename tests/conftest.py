@@ -56,4 +56,5 @@ def mock_client() -> Generator[MagicMock]:
             ]
         )
         client.artwork = AsyncMock(return_value=b"jpeg-bytes")
+        client.app_icon = AsyncMock(return_value=b"png-bytes")
         yield client

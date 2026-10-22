@@ -172,21 +172,42 @@ class MediaBridgeMediaPlayer(MediaBridgeEntity, MediaPlayerEntity):
         return self._data.get("artwork_url") is not None
 
     @property
+    def _logo_app(self) -> str | None:
+        """App whose logo stands in for a missing cover: the playing app, else the one in front."""
+        if self._data.get("state") in (None, "off"):
+            return None
+        if app := self._data.get("app"):
+            return app
+        front = self._data.get("foreground_app")
+        # Only real apps from the source list, not the launcher or system screens.
+        return front if any(a["package"] == front for a in self.coordinator.apps) else None
+
+    @property
     def media_image_hash(self) -> str | None:
         """Changes whenever the cover changes, so the frontend reloads it."""
         if self._data.get("state") in (None, "off"):
             return None
-        return self._data.get("artwork_id")
+        if self._data.get("artwork_id") or self._data.get("artwork_url"):
+            return self._data.get("artwork_id") or self._data.get("artwork_url")
+        app = self._logo_app
+        return f"app-{app}" if app else None
 
     async def async_get_media_image(self) -> tuple[bytes | None, str | None]:
-        """Cover bitmaps are served by the device API."""
+        """Cover bitmaps and app logos are served by the device API."""
         if self.media_image_url:
             return await super().async_get_media_image()
         try:
-            data = await self.coordinator.client.artwork()
+            if self._data.get("artwork_id"):
+                data = await self.coordinator.client.artwork()
+                if data:
+                    return data, "image/jpeg"
+            if app := self._logo_app:
+                data = await self.coordinator.client.app_icon(app)
+                if data:
+                    return data, "image/png"
         except MediaBridgeError:
-            return None, None
-        return (data, "image/jpeg") if data else (None, None)
+            pass
+        return None, None
 
     async def async_show_notification(
         self,

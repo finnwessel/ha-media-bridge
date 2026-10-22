@@ -54,11 +54,11 @@ class MediaBridgeClient:
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise MediaBridgeError(str(err) or type(err).__name__) from err
 
-    async def _request_bytes(self, path: str) -> bytes | None:
+    async def _request_bytes(self, path: str, params: dict[str, str] | None = None) -> bytes | None:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
         try:
             async with asyncio.timeout(5):
-                async with self._session.get(self._base + path, headers=headers) as resp:
+                async with self._session.get(self._base + path, headers=headers, params=params) as resp:
                     if resp.status == 404:
                         return None
                     if resp.status == 401:
@@ -100,6 +100,13 @@ class MediaBridgeClient:
     async def artwork(self) -> bytes | None:
         """JPEG of the current cover, None if there is none."""
         return await self._request_bytes("/artwork")
+
+    async def app_icon(self, package: str, *, banner: bool = True) -> bytes | None:
+        """PNG of an app's TV banner (or launcher icon), None if it has none."""
+        params = {"package": package}
+        if not banner:
+            params["kind"] = "icon"
+        return await self._request_bytes("/icon", params)
 
     async def notify(
         self,
