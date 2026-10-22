@@ -25,9 +25,11 @@ class BeamerCard extends HTMLElement {
       sleep: `switch.${base}_nach_diesem_titel_ausschalten`,
       picture_mode: `select.${base}_bildmodus`,
       screensaver: `binary_sensor.${base}_bildschirmschoner`,
+      hidden_apps: ["Home", "Einstellungen", "System aktualisieren", "Play Store", "Play Games", "MultiMediaPlayer"],
       ...config,
     };
     this._modesOpen = false;
+    this._allOpen = false;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
   }
 
@@ -42,7 +44,7 @@ class BeamerCard extends HTMLElement {
     const c = this._config;
     const m = hass.states[c.entity];
     const a = m ? m.attributes : {};
-    const sig = [m && m.state, a.media_title, a.media_artist, a.app_name, a.entity_picture, a.volume_level, a.is_volume_muted,
+    const sig = [m && m.state, a.media_title, a.media_artist, a.app_name, a.source, a.entity_picture, a.volume_level, a.is_volume_muted,
       a.media_position_updated_at, a.media_duration, (a.source_list || []).length,
       ...[c.end, c.next, c.sleep, c.picture_mode, c.screensaver].map((i) => hass.states[i] && hass.states[i].state)].join("|");
     if (sig === this._sig || this._dragging) return;
@@ -114,11 +116,14 @@ class BeamerCard extends HTMLElement {
     const off = st === "off" || st === "unavailable";
     const media = ["playing", "paused", "buffering"].includes(st);
     const dreaming = this._s(c.screensaver) === "on";
-    const S = dreaming && !media ? { label: "Bildschirmschoner", icon: "mdi:weather-night", c: "indigo" } : BMC_STATES[st];
+    const front = a.app_name || (a.source && a.source !== "Home" ? a.source : null);
+    let S = BMC_STATES[st];
+    if (dreaming && !media) S = { label: "Bildschirmschoner", icon: "mdi:weather-night", c: "indigo" };
+    else if (!media && !off && front) S = { ...S, label: "Geöffnet", icon: "mdi:application-outline" };
 
     const pic = !off && a.entity_picture ? a.entity_picture : null;
     const isLogo = pic && pic.includes("cache=app-");
-    const title = media ? a.media_title || a.app_name || "Wiedergabe" : off ? "Beamer" : a.app_name || "Startbildschirm";
+    const title = media ? a.media_title || a.app_name || "Wiedergabe" : off ? "Beamer" : front || "Startbildschirm";
     const sub = media ? [a.media_artist, a.media_title ? a.app_name : null].filter(Boolean).join(" · ") : "";
 
     const p = media ? this._position() : null;
@@ -129,7 +134,8 @@ class BeamerCard extends HTMLElement {
     // Apps: nur die, die der Beamer auch kennt
     const sources = a.source_list || [];
     const apps = c.apps.filter((x) => sources.includes(x));
-    const curApp = a.app_name || a.source;
+    const curApp = front;
+    const more = sources.filter((x) => !c.apps.includes(x) && !c.hidden_apps.includes(x));
 
     const vol = Math.round((a.volume_level || 0) * 100);
     const muted = !!a.is_volume_muted;
@@ -150,9 +156,9 @@ class BeamerCard extends HTMLElement {
               opacity: .35; pointer-events: none; }
         .art { position: relative; flex: none; width: 128px; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden;
                display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 18%, var(--card-background-color));
-               box-shadow: 0 2px 8px rgba(0,0,0,.18); cursor: pointer; }
+               box-shadow: 0 2px 8px rgba(0,0,0,.18); }
         .art img { width: 100%; height: 100%; object-fit: cover; }
-        .art.logo img { object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff1; }
+        .art.logo img { object-fit: cover; }
         .art ha-icon { --mdc-icon-size: 40px; color: var(--fg); }
         .info { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
         .pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
@@ -220,7 +226,7 @@ class BeamerCard extends HTMLElement {
       <ha-card>
         <div class="hero">
           ${pic && !isLogo ? `<div class="bg" style="background-image:url('${pic}')"></div>` : ""}
-          <div class="art${isLogo ? " logo" : ""}" data-act="info">
+          <div class="art${isLogo ? " logo" : ""}">
             ${pic ? `<img src="${pic}" alt="">` : `<ha-icon icon="${S.icon}"></ha-icon>`}
           </div>
           <div class="info">
@@ -254,8 +260,11 @@ class BeamerCard extends HTMLElement {
             ${this._ok(next) ? `<div class="note"><ha-icon icon="mdi:playlist-play"></ha-icon><span><small>Als Nächstes</small>${this._esc(next)}</span></div>` : ""}
             ${apps.length ? `<div class="h2">Apps</div><div class="apps">${apps.map((x) =>
               `<button class="app${x === curApp ? " on" : ""}" data-act="app" data-app="${this._esc(x)}"><img alt=""><span>${this._esc(x)}</span></button>`).join("")}</div>
-              <button class="more" data-act="info"><ha-icon icon="mdi:apps"></ha-icon>Alle Apps & Quellen</button>` : ""}
+              ${more.length ? `<button class="more" data-act="all"><ha-icon icon="${this._allOpen ? "mdi:chevron-up" : "mdi:apps"}"></ha-icon>${this._allOpen ? "Weniger Apps" : `Weitere Apps (${more.length})`}</button>` : ""}
+              ${this._allOpen ? `<div class="apps">${more.map((x) =>
+                `<button class="app${x === curApp ? " on" : ""}" data-act="app" data-app="${this._esc(x)}"><img alt=""><span>${this._esc(x)}</span></button>`).join("")}</div>` : ""}` : ""}
             <div class="chips">
+              ${front ? `<button class="chip" data-act="home"><ha-icon icon="mdi:home-outline"></ha-icon>Startbildschirm</button>` : ""}
               ${has(BMC_F.TURN_OFF) ? `<button class="chip" data-act="off"><ha-icon icon="mdi:power"></ha-icon>Ausschalten</button>` : ""}
               ${this._ok(this._s(c.sleep)) && media ? `<button class="chip${sleepOn ? " on" : ""}" data-act="sleep"><ha-icon icon="mdi:power-sleep"></ha-icon>${sleepOn ? "Aus nach diesem Titel" : "Nach Titel aus"}</button>` : ""}
               ${this._ok(mode) ? `<button class="chip${this._modesOpen ? " on" : ""}" data-act="modes"><ha-icon icon="mdi:palette"></ha-icon>Bild: ${BMC_MODES[mode] || mode}</button>` : ""}
@@ -304,13 +313,12 @@ class BeamerCard extends HTMLElement {
       case "mute": call("volume_mute", { is_volume_muted: !h.states[c.entity].attributes.is_volume_muted }); break;
       case "app": call("select_source", { source: el.dataset.app }); break;
       case "on": call("turn_on"); break;
+      case "home": call("select_source", { source: "Home" }); break;
+      case "all": this._allOpen = !this._allOpen; this._sig = null; this._render(); break;
       case "off": call("turn_off"); break;
       case "sleep": h.callService("switch", "toggle", { entity_id: c.sleep }); break;
       case "modes": this._modesOpen = !this._modesOpen; this._sig = null; this._render(); break;
       case "mode": h.callService("select", "select_option", { entity_id: c.picture_mode, option: el.dataset.mode }); break;
-      case "info":
-        this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: c.entity } }));
-        break;
     }
   }
 
