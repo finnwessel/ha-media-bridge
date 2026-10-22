@@ -182,14 +182,13 @@ async def test_diagnostics_and_permissions(
     assert bt.state == "1"
     assert bt.attributes["devices"] == ["Kopfhörer"]
     assert hass.states.get("sensor.beamer_wi_fi_signal").state == "-58"
-    assert hass.states.get("binary_sensor.beamer_permissions").state == "on"
+    assert hass.states.get("binary_sensor.beamer_permissions") is None  # disabled by default
     registry = ir.async_get(hass)
     assert registry.async_get_issue(DOMAIN, f"{entry.entry_id}_accessibility")
     assert not registry.async_get_issue(DOMAIN, f"{entry.entry_id}_overlay")
 
     fixed = {**DIAG["diagnostics"], "permissions": {**DIAG["diagnostics"]["permissions"], "accessibility": True}}
     await _push(hass, client, {**PLAYING, **DIAG, "diagnostics": fixed})
-    assert hass.states.get("binary_sensor.beamer_permissions").state == "off"
     assert not registry.async_get_issue(DOMAIN, f"{entry.entry_id}_accessibility")
 
 

@@ -40,9 +40,14 @@ class ScreensaverSensor(MediaBridgeEntity, BinarySensorEntity):
 
 
 class PermissionsSensor(MediaBridgeEntity, BinarySensorEntity):
-    """Problem when the app lacks a permission (e.g. accessibility switched off after an update)."""
+    """Problem when the app lacks a permission (e.g. accessibility switched off after an update).
+
+    Disabled by default: missing permissions are reported as repair issues; this sensor is
+    only for automations, and problem sensors tend to show up on area dashboards.
+    """
 
     _attr_translation_key = "permissions"
+    _attr_entity_registry_enabled_default = False
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 

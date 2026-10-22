@@ -24,7 +24,7 @@ Two parts in one repository:
 | `sensor.<device>_resolution`, `sensor.<device>_refresh_rate` | Output mode, e.g. `2160p` and `23.98` Hz – shows whether frame-rate matching kicks in. Attribute `hdr_formats` lists the HDR formats the output supports (the active HDR mode isn't readable by apps). |
 | `sensor.<device>_bluetooth` | Number of connected Bluetooth devices; attributes `devices` (names) and `details` (type, battery where reported). Needs `BLUETOOTH_CONNECT`. |
 | `update.<device>_app` | New app releases from GitHub; *Install* lets the device download and install the APK itself. The first time Android asks for confirmation on screen (OK with the remote); later updates install without asking. Needs `REQUEST_INSTALL_PACKAGES`. |
-| `binary_sensor.<device>_permissions` | Diagnostic problem sensor; a missing permission also raises a repair issue in Home Assistant with the ADB command that fixes it. |
+| `binary_sensor.<device>_permissions` | Diagnostic problem sensor, disabled by default (enable it for automations). A missing permission raises a repair issue in Home Assistant with the ADB command that fixes it. |
 | Diagnostics | `wifi_signal` (dBm), `wifi_link_speed` (Mbit/s), `storage_free` (GB), `last_boot`. |
 | `event.<device>_remote` | Remote key presses (`short_press` / `long_press`, attribute `key`, e.g. `menu`, `media_play_pause`, `prog_red`, and `button` with readable names for vendor keys, e.g. `netflix`, `youtube`, `prime_video`, `input` on JMGO remotes). Navigation keys are not reported. Keys are only observed, the remote keeps working. |
 
