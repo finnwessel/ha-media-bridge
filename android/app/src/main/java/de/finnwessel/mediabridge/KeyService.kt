@@ -56,7 +56,16 @@ class KeyService : AccessibilityService() {
         service.pushEvent(mapOf("event" to "key", "key" to key, "press" to press))
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    /**
+     * Window changes tell which app is in front. UsageStats would too, but
+     * some TV builds (JMGO) don't record activity events at all.
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString() ?: return
+        if (pkg == packageName || pkg in NOT_APPS) return
+        MediaBridgeService.instance?.onForegroundWindow(pkg)
+    }
 
     override fun onInterrupt() = Unit
 
@@ -66,6 +75,9 @@ class KeyService : AccessibilityService() {
             private set
 
         private const val LONG_PRESS_MS = 600L
+
+        /** System UI windows that come and go above apps. */
+        private val NOT_APPS = setOf("com.android.systemui", "android", "com.google.android.inputmethod.latin")
 
         /** Navigation would flood Home Assistant without being useful as a trigger. */
         private val IGNORED = setOf(

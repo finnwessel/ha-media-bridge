@@ -76,9 +76,9 @@ PKG=de.finnwessel.mediabridge
 adb shell cmd notification allow_listener $PKG/$PKG.MediaBridgeService
 # Notifications and pairing code on screen
 adb shell appops set $PKG SYSTEM_ALERT_WINDOW allow
-# Foreground app sensor
+# Foreground app sensor (fallback; the accessibility service below is preferred)
 adb shell appops set $PKG GET_USAGE_STATS allow
-# Remote key events (check first that no other accessibility service is enabled:
+# Remote key events, foreground app, ending the screensaver (check first that no other accessibility service is enabled:
 #   adb shell settings get secure enabled_accessibility_services)
 adb shell settings put secure enabled_accessibility_services $PKG/$PKG.KeyService
 adb shell settings put secure accessibility_enabled 1

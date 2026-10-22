@@ -502,6 +502,26 @@ class MediaBridgeService : NotificationListenerService() {
         }
     }
 
+    /** Called by the accessibility service on every window change. */
+    fun onForegroundWindow(pkg: String) {
+        handler.post {
+            // Only apps that can be launched (or the launcher itself) count as "the app in front".
+            if (!isApp(pkg) || pkg == foreground) return@post
+            foreground = pkg
+            schedulePublish()
+        }
+    }
+
+    private val appCache = HashMap<String, Boolean>()
+
+    private fun isApp(pkg: String): Boolean = appCache.getOrPut(pkg) {
+        val pm = packageManager
+        pm.getLeanbackLaunchIntentForPackage(pkg) != null ||
+            pm.getLaunchIntentForPackage(pkg) != null ||
+            pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
+                .any { it.activityInfo.packageName == pkg }
+    }
+
     private fun hasUsageAccess(): Boolean {
         val ops = getSystemService(AppOpsManager::class.java)
         val mode = if (Build.VERSION.SDK_INT >= 29) {
@@ -693,10 +713,17 @@ class MediaBridgeService : NotificationListenerService() {
                 audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
                 return true
             }
-            "launch" -> return runCatching { launch(args.optString("package")) }
-                .onFailure { Log.w(TAG, "launch failed: ${it.message}") }.getOrDefault(false)
-            "open_url" -> return runCatching { openUrl(args.optString("url")) }
-                .onFailure { Log.w(TAG, "open_url failed: ${it.message}") }.getOrDefault(false)
+            "launch" -> {
+                val pkg = args.optString("package")
+                if (!isApp(pkg)) return false
+                afterWaking { runCatching { launch(pkg) }.onFailure { Log.w(TAG, "launch failed: ${it.message}") } }
+                return true
+            }
+            "open_url" -> {
+                val url = args.optString("url").takeIf { it.isNotBlank() } ?: return false
+                afterWaking { runCatching { openUrl(url) }.onFailure { Log.w(TAG, "open_url failed: ${it.message}") } }
+                return true
+            }
             "sleep" -> return sleep()
             "set_setting" -> {
                 val key = args.optString("key").takeIf { it in Projector.WATCHED } ?: return false
@@ -756,6 +783,22 @@ class MediaBridgeService : NotificationListenerService() {
             steps++
         }
         Log.i(TAG, "volume target=$target reached=$current (max $max, $steps steps)")
+    }
+
+    /**
+     * A running screensaver stays on top of anything started from the
+     * background. A HOME key from the accessibility service ends it like a real
+     * key press; then the action runs.
+     */
+    private fun afterWaking(action: () -> Unit) {
+        val keys = KeyService.instance
+        if (dreaming && keys != null) {
+            Log.i(TAG, "ending screensaver first")
+            keys.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            handler.postDelayed(action, 800)
+        } else {
+            action()
+        }
     }
 
     // ---------------------------------------------------------------- standby
