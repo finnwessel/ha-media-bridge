@@ -85,7 +85,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MediaBridgeConfigEntry) 
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: MediaBridgeConfigEntry) -> None:
-    """MAC changed: reload so the power features follow."""
+    """MAC changed: reload so the power features follow. Data updates (app version) don't need a reload."""
+    if dict(entry.options) == entry.runtime_data.options:
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

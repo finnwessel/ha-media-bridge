@@ -49,6 +49,8 @@ class MediaBridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.webhook_url: str | None = None
+        # Options the entities were set up with; only a change of these needs a reload.
+        self.options = dict(entry.options)
         self.apps: list[dict[str, str]] = []
         self._apps_fetched: datetime | None = None
         self._icons: dict[tuple[str, bool], bytes | None] = {}
