@@ -115,6 +115,8 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
                 "adb shell appops set de.finnwessel.mediabridge REQUEST_INSTALL_PACKAGES allow"
             ) from err
         # Download, (on first update) confirmation on screen, install and restart of the app.
+        self._attr_in_progress = True
+        self.async_write_ha_state()
         try:
             async with asyncio.timeout(INSTALL_TIMEOUT):
                 error = await self._done
@@ -124,6 +126,7 @@ class MediaBridgeAppUpdate(MediaBridgeEntity, UpdateEntity):
             ) from err
         finally:
             self._done = None
+            self._attr_in_progress = False
         if error:
             raise HomeAssistantError(f"Update failed on the device: {error}")
 
