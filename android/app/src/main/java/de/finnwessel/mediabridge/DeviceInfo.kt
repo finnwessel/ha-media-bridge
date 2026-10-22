@@ -28,9 +28,8 @@ object DeviceInfo {
     fun display(context: Context): JSONObject? {
         val display = context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY) ?: return null
         val mode = display.mode
-        val hdr = runCatching {
-            display.hdrCapabilities?.supportedHdrTypes?.mapNotNull { HDR_TYPES[it] } ?: emptyList()
-        }.getOrDefault(emptyList())
+        val types: IntArray = runCatching { display.hdrCapabilities?.supportedHdrTypes }.getOrNull() ?: IntArray(0)
+        val hdr: List<String> = types.toList().mapNotNull { type -> HDR_TYPES[type] }
         return JSONObject()
             .put("width", mode.physicalWidth)
             .put("height", mode.physicalHeight)

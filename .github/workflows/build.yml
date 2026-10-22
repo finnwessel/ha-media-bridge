@@ -64,13 +64,17 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          { pip install -q -r requirements_test.txt && pytest -q; } 2>&1 | tee test.log
+          { pip install -q -r requirements_test.txt && pytest -q -p no:logging --tb=short; } 2>&1 | tee test.log
 
       - name: Report test errors
         if: failure()
         shell: bash
         run: |
-          msg=$(tail -80 test.log 2>/dev/null | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          # One annotation per failure block (annotations are cut at 4 KB).
+          grep -nE "^(FAILED|ERROR) " test.log | head -10 | while read -r line; do echo "::error title=Failed::$line"; done
+          msg=$(grep -E "^E |^[a-zA-Z_/.]+\.py:[0-9]+: |^_+ test_" test.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Assertions::$msg"
+          msg=$(tail -40 test.log 2>/dev/null | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=Tests failed::$msg"
 
   hassfest:
