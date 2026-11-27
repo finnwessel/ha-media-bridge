@@ -6,6 +6,7 @@ from custom_components.media_bridge.sensor import content_type
 
 YT = "com.google.android.youtube.tv"
 NETFLIX = "com.netflix.ninja"
+PRIME = "com.amazon.amazonvideo.livingroom"
 
 
 def _d(app, minutes, title="", state="playing", album=None):
@@ -25,6 +26,8 @@ def _d(app, minutes, title="", state="playing", album=None):
         (_d(YT, 9, "Folge 3"), "episode"),
         (_d("com.spotify.tv.android", 3, "Song"), "music"),
         (_d("de.zdf.android.tv", 0, "ZDF live"), "live"),
+        (_d(PRIME, 0), "movie"),
+        (_d(PRIME, 0, "S1:E3 Pilot"), "episode"),
         (_d(NETFLIX, 125, "Dune", state="paused"), "movie"),
         (_d(NETFLIX, 125, "Dune", state="idle"), None),
         (_d(NETFLIX, 125, "Dune", state="off"), None),

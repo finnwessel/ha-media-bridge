@@ -63,6 +63,15 @@ MUSIC_APPS = {
 # Video apps that carry user clips as well as long-form content.
 CLIP_APPS = {"com.google.android.youtube.tv", "com.google.android.youtube", "com.zhiliaoapp.musically"}
 
+# On-demand video apps: no live TV, so a session without a reported length is
+# still a film or a series (Prime Video, for one, never reports the length).
+ON_DEMAND_APPS = {
+    "com.amazon.amazonvideo.livingroom",
+    "com.netflix.ninja",
+    "com.disney.disneyplus",
+    "org.jellyfin.androidtv",
+}
+
 EPISODE_PATTERN = re.compile(
     r"(\bS\d{1,2}\s*[:.]?\s*[EF]\d{1,3}\b|\b(Folge|Episode|Staffel|Season)\s*\d+)", re.IGNORECASE
 )
@@ -78,6 +87,8 @@ def content_type(data: dict[str, Any]) -> str | None:
     if app in MUSIC_APPS:
         return "music"
     if duration <= 0:
+        if app in ON_DEMAND_APPS:
+            return "episode" if EPISODE_PATTERN.search(title) else "movie"
         return "live"
     if EPISODE_PATTERN.search(title):
         return "episode"
